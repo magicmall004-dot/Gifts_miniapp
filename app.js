@@ -10,29 +10,22 @@ tg.expand();
 let currentUser = null;
 let animInstances = [];
 let previewAnim = null;
-let editingGiftId = null; // null = "add" mode, else "edit" mode
+let editingGiftId = null;
+
+function authHeaders(extra = {}) {
+  return { "X-Telegram-Init-Data": tg.initData, ...extra };
+}
 
 // ══════════════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════════════
 async function authenticate() {
-  const initData = tg.initData;
-  if (!initData) {
-    showError("Open this app from within Telegram.");
-    return;
-  }
-  const res = await fetch(`${API_BASE}/api/auth`, {
-    method: "POST",
-    headers: { "X-Telegram-Init-Data": initData },
-  });
-  if (res.status === 403) {
-    showError("You are banned from this shop.");
-    return;
-  }
-  if (!res.ok) {
-    showError("Login failed. Please reopen the app.");
-    return;
-  }
+  if (!tg.initData) { showError("Open this app from within Telegram."); return; }
+
+  const res = await fetch(`${API_BASE}/api/auth`, { method: "POST", headers: authHeaders() });
+  if (res.status === 403) { showError("You are banned from this shop."); return; }
+  if (!res.ok) { showError("Login failed. Please reopen the app."); return; }
+
   currentUser = await res.json();
   document.getElementById("role-badge").textContent = currentUser.role;
 
@@ -52,23 +45,19 @@ function showError(msg) {
   document.getElementById("error").classList.remove("hidden");
 }
 
-function authHeaders(extra = {}) {
-  return { "X-Telegram-Init-Data": tg.initData, ...extra };
-}
-
 // ══════════════════════════════════════════════════════════════
 // TAB NAVIGATION
 // ══════════════════════════════════════════════════════════════
 function switchTab(tab) {
-  ["shop", "gifts", "users"].forEach((t) => {
+  ["shop", "orders", "gifts", "users"].forEach((t) => {
     document.getElementById(`tab-${t}`).classList.toggle("hidden", t !== tab);
   });
-  document.querySelectorAll(".nav-btn").forEach((b) => {
-    b.classList.toggle("active", b.dataset.tab === tab);
-  });
-  const titles = { shop: "🎁 Gifts Shop", gifts: "🎁 Manage Gifts", users: "👥 Manage Users" };
+  document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+
+  const titles = { shop: "Gifts Shop", orders: "My Orders", gifts: "Manage Gifts", users: "Manage Users" };
   document.getElementById("page-title").textContent = titles[tab];
 
+  if (tab === "orders") loadOrders();
   if (tab === "gifts") loadAdminGifts();
   if (tab === "users") loadUsers();
   tg.HapticFeedback?.impactOccurred("light");
@@ -80,8 +69,7 @@ function switchTab(tab) {
 async function loadGifts() {
   const res = await fetch(`${API_BASE}/api/gifts`, { headers: authHeaders() });
   if (!res.ok) { showError("Could not load gifts."); return; }
-  const data = await res.json();
-  renderGifts(data.gifts);
+  renderGifts((await res.json()).gifts);
 }
 
 function renderGifts(gifts) {
@@ -92,7 +80,7 @@ function renderGifts(gifts) {
   grid.innerHTML = "";
 
   if (!gifts.length) {
-    grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:#888;">No gifts yet.</p>`;
+    grid.innerHTML = `<p class="empty-state">✨ No gifts available yet.</p>`;
     return;
   }
 
@@ -120,9 +108,7 @@ function renderGifts(gifts) {
     grid.appendChild(card);
 
     if (gift.animation_url) {
-      const anim = lottie.loadAnimation({
-        container: animBox, renderer: "svg", loop: true, autoplay: true, path: gift.animation_url,
-      });
+      const anim = lottie.loadAnimation({ container: animBox, renderer: "svg", loop: true, autoplay: true, path: gift.animation_url });
       animInstances.push(anim);
     }
   });
@@ -134,26 +120,29 @@ function renderGifts(gifts) {
 let viewerAnim = null;
 let currentGift = null;
 let buyForOther = false;
+let currentOrderId = null;
+let commentPollTimer = null;
 
 function openViewer(gift) {
   currentGift = gift;
+  currentOrderId = null;
   const box = document.getElementById("viewer-anim");
   box.innerHTML = "";
   document.getElementById("viewer-name").textContent = `${gift.emoji || "🎁"} ${gift.name}`;
   document.getElementById("viewer-price").textContent = gift.price > 0 ? `${gift.price} ⭐` : "";
   document.getElementById("buy-status").textContent = "";
-  document.getElementById("buy-comment").value = "";
+  document.getElementById("comment-preview").classList.add("hidden");
+  document.getElementById("comment-btn").textContent = "💬 Add Comment (via bot chat)";
   backToChoice();
 
-  const canBuy = currentUser && currentUser.role !== "owner" && currentUser.role !== "admin" && gift.price > 0;
+  const canBuy = currentUser.role !== "owner" && currentUser.role !== "admin" && gift.price > 0;
   document.getElementById("buy-step-choice").classList.toggle("hidden", !canBuy);
-  if (!canBuy && (currentUser.role === "owner" || currentUser.role === "admin")) {
-    document.getElementById("buy-status").textContent = "Staff accounts can preview gifts but not purchase.";
-    document.getElementById("buy-status").style.color = "#888";
+  if (!canBuy) {
+    document.getElementById("buy-status").style.color = "#8b8b9a";
+    document.getElementById("buy-status").textContent = "Staff accounts can preview but not purchase.";
   }
 
   document.getElementById("viewer-modal").classList.remove("hidden");
-
   if (gift.animation_url) {
     viewerAnim = lottie.loadAnimation({ container: box, renderer: "svg", loop: true, autoplay: true, path: gift.animation_url });
   }
@@ -163,31 +152,21 @@ function openViewer(gift) {
 function closeViewer() {
   document.getElementById("viewer-modal").classList.add("hidden");
   if (viewerAnim) { viewerAnim.destroy(); viewerAnim = null; }
+  if (commentPollTimer) { clearInterval(commentPollTimer); commentPollTimer = null; }
   currentGift = null;
+  currentOrderId = null;
 }
 
-function startBuy(forOther) {
+async function startBuy(forOther) {
   buyForOther = forOther;
-  document.getElementById("buy-step-choice").classList.add("hidden");
-  document.getElementById("buy-step-comment").classList.remove("hidden");
-}
-
-function backToChoice() {
-  document.getElementById("buy-step-comment").classList.add("hidden");
-  document.getElementById("buy-step-choice").classList.remove("hidden");
-}
-
-async function confirmBuy() {
   const status = document.getElementById("buy-status");
-  status.style.color = "#ff8a8a";
-  status.textContent = "Creating invoice…";
+  status.style.color = "#ff6b6b";
+  status.textContent = "Creating order…";
 
-  const comment = document.getElementById("buy-comment").value.trim();
-
-  const res = await fetch(`${API_BASE}/api/buy`, {
+  const res = await fetch(`${API_BASE}/api/buy/start`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ gift_db_id: currentGift.id, for_other: buyForOther, comment_text: comment }),
+    body: JSON.stringify({ gift_db_id: currentGift.id, for_other: forOther }),
   });
 
   if (!res.ok) {
@@ -197,22 +176,149 @@ async function confirmBuy() {
   }
 
   const data = await res.json();
-  status.style.color = "#8aff9e";
+  currentOrderId = data.order_id;
+  status.textContent = "";
+
+  document.getElementById("buy-step-choice").classList.add("hidden");
+  document.getElementById("buy-step-comment").classList.remove("hidden");
+}
+
+function backToChoice() {
+  document.getElementById("buy-step-comment").classList.add("hidden");
+  document.getElementById("buy-step-choice").classList.remove("hidden");
+  if (commentPollTimer) { clearInterval(commentPollTimer); commentPollTimer = null; }
+}
+
+async function requestComment() {
+  if (!currentOrderId) return;
+  const status = document.getElementById("buy-status");
+  status.style.color = "#5b8cff";
+  status.textContent = "Check your bot chat — type your comment there…";
+  document.getElementById("comment-btn").textContent = "💬 Waiting for your message…";
+
+  const res = await fetch(`${API_BASE}/api/order/${currentOrderId}/request-comment`, {
+    method: "POST", headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not send comment request.";
+    return;
+  }
+
+  tg.HapticFeedback?.impactOccurred("light");
+
+  if (commentPollTimer) clearInterval(commentPollTimer);
+  commentPollTimer = setInterval(async () => {
+    const r = await fetch(`${API_BASE}/api/order/${currentOrderId}`, { headers: authHeaders() });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.comment_text) {
+      clearInterval(commentPollTimer);
+      commentPollTimer = null;
+      status.style.color = "#4ade80";
+      status.textContent = "✅ Comment received!";
+      document.getElementById("comment-btn").textContent = "✏️ Edit Comment (via bot chat)";
+      const preview = document.getElementById("comment-preview");
+      preview.textContent = d.comment_text;
+      preview.classList.remove("hidden");
+    }
+  }, 2500);
+}
+
+async function goToPay() {
+  if (!currentOrderId) return;
+  const status = document.getElementById("buy-status");
+  status.style.color = "#5b8cff";
   status.textContent = "Opening payment…";
 
+  const res = await fetch(`${API_BASE}/api/order/${currentOrderId}/pay`, {
+    method: "POST", headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not start payment.";
+    return;
+  }
+
+  const data = await res.json();
   tg.openInvoice(data.invoice_link, (paymentStatus) => {
     if (paymentStatus === "paid") {
+      status.style.color = "#4ade80";
       status.textContent = buyForOther
-        ? "✅ Paid! Check your bot chat for the claim link."
+        ? "✅ Paid! Check My Orders for the claim link."
         : "✅ Paid! Check your Telegram profile gifts.";
       tg.HapticFeedback?.notificationOccurred("success");
       setTimeout(() => { closeViewer(); loadGifts(); }, 1800);
     } else if (paymentStatus === "cancelled") {
+      status.style.color = "#ff6b6b";
       status.textContent = "Payment cancelled.";
     } else if (paymentStatus === "failed") {
+      status.style.color = "#ff6b6b";
       status.textContent = "Payment failed. Try again.";
     }
   });
+}
+
+// ══════════════════════════════════════════════════════════════
+// MY ORDERS
+// ══════════════════════════════════════════════════════════════
+async function loadOrders() {
+  const res = await fetch(`${API_BASE}/api/orders`, { headers: authHeaders() });
+  const list = document.getElementById("orders-list");
+  if (!res.ok) { list.innerHTML = `<p class="empty-state">Could not load orders.</p>`; return; }
+  const data = await res.json();
+  renderOrders(data.orders);
+}
+
+function renderOrders(orders) {
+  const list = document.getElementById("orders-list");
+  list.innerHTML = "";
+
+  if (!orders.length) {
+    list.innerHTML = `<p class="empty-state">📦 No orders yet — go buy something nice!</p>`;
+    return;
+  }
+
+  orders.forEach((o) => {
+    const row = document.createElement("div");
+    row.className = "order-row";
+
+    let claimHtml = "";
+    if (o.for_other && o.claim_link && o.status !== "claimed") {
+      claimHtml = `
+        <div class="claim-link-box">
+          <input readonly value="${o.claim_link}">
+          <button onclick="copyLink('${o.claim_link}', this)">Copy</button>
+        </div>`;
+    }
+
+    const statusLabel = o.status === "sent" ? "Delivered" : o.status.charAt(0).toUpperCase() + o.status.slice(1);
+    const dateStr = new Date(o.created_at.replace(" ", "T") + "Z").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+    row.innerHTML = `
+      <div class="order-top">
+        <div class="thumb">${o.gift_emoji || "🎁"}</div>
+        <div class="name">${escapeHtml(o.gift_name)}</div>
+        <div class="price">${o.price} ⭐</div>
+      </div>
+      <span class="status-pill ${o.status}">${statusLabel}</span>
+      <span class="status-pill" style="background:#ffffff12;color:#aaa;margin-left:6px;">${o.for_other ? "For someone else" : "For myself"}</span>
+      <div class="order-meta">Order #${o.id} · ${dateStr}${o.claimed_by ? ` · Claimed by @${o.claimed_by}` : ""}</div>
+      ${o.comment ? `<div class="order-comment">💬 ${escapeHtml(o.comment)}</div>` : ""}
+      ${claimHtml}
+    `;
+    list.appendChild(row);
+  });
+}
+
+function copyLink(link, btn) {
+  navigator.clipboard?.writeText(link);
+  const original = btn.textContent;
+  btn.textContent = "Copied!";
+  setTimeout(() => (btn.textContent = original), 1200);
+  tg.HapticFeedback?.impactOccurred("light");
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -221,8 +327,7 @@ async function confirmBuy() {
 async function loadAdminGifts() {
   const res = await fetch(`${API_BASE}/api/admin/gifts`, { headers: authHeaders() });
   if (!res.ok) return;
-  const data = await res.json();
-  renderAdminGifts(data.gifts);
+  renderAdminGifts((await res.json()).gifts);
 }
 
 function renderAdminGifts(gifts) {
@@ -230,7 +335,7 @@ function renderAdminGifts(gifts) {
   list.innerHTML = "";
 
   if (!gifts.length) {
-    list.innerHTML = `<p style="text-align:center;color:#888;padding:20px 0;">No gifts yet. Tap "+ Add New Gift".</p>`;
+    list.innerHTML = `<p class="empty-state">No gifts yet. Tap "＋ Add New Gift".</p>`;
     return;
   }
 
@@ -245,45 +350,32 @@ function renderAdminGifts(gifts) {
           ${g.player_price}⭐ / ${g.reseller_price}⭐ · ${g.active ? "Active" : "Hidden"}
         </div>
       </div>
-      <div class="actions">
-        <button class="pill-btn edit">Edit</button>
-        ${g.active
-          ? `<button class="pill-btn danger">Hide</button>`
-          : `<button class="pill-btn success">Show</button>`}
-      </div>
+      <div class="actions"></div>
     `;
-    row.querySelector(".edit").onclick = () => openGiftForm(g);
-    const toggleBtn = row.querySelector(g.active ? ".danger" : ".success");
+    const actions = row.querySelector(".actions");
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "pill-btn edit";
+    editBtn.textContent = "Edit";
+    editBtn.onclick = () => openGiftForm(g);
+    actions.appendChild(editBtn);
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = `pill-btn ${g.active ? "danger" : "success"}`;
+    toggleBtn.textContent = g.active ? "Hide" : "Show";
     toggleBtn.onclick = () => toggleGiftActive(g.id, g.active);
+    actions.appendChild(toggleBtn);
 
     if (currentUser.role === "owner") {
       const delBtn = document.createElement("button");
       delBtn.className = "pill-btn danger";
       delBtn.textContent = "Delete";
       delBtn.onclick = () => deleteGiftPermanently(g.id, g.name);
-      row.querySelector(".actions").appendChild(delBtn);
+      actions.appendChild(delBtn);
     }
 
     list.appendChild(row);
   });
-}
-
-function deleteGiftPermanently(gid, name) {
-  const doDelete = async () => {
-    const res = await fetch(`${API_BASE}/api/admin/gift/${gid}/hard-delete`, {
-      method: "POST",
-      headers: authHeaders(),
-    });
-    if (res.ok) loadAdminGifts();
-  };
-
-  if (tg.showConfirm) {
-    tg.showConfirm(`Permanently delete "${name}"? This cannot be undone.`, (ok) => {
-      if (ok) doDelete();
-    });
-  } else if (confirm(`Permanently delete "${name}"? This cannot be undone.`)) {
-    doDelete();
-  }
 }
 
 async function toggleGiftActive(gid, isActive) {
@@ -291,6 +383,18 @@ async function toggleGiftActive(gid, isActive) {
   const method = isActive ? "DELETE" : "POST";
   const res = await fetch(`${API_BASE}/api/admin/${path}`, { method, headers: authHeaders() });
   if (res.ok) loadAdminGifts();
+}
+
+function deleteGiftPermanently(gid, name) {
+  const doDelete = async () => {
+    const res = await fetch(`${API_BASE}/api/admin/gift/${gid}/hard-delete`, { method: "POST", headers: authHeaders() });
+    if (res.ok) loadAdminGifts();
+  };
+  if (tg.showConfirm) {
+    tg.showConfirm(`Permanently delete "${name}"? This cannot be undone.`, (ok) => { if (ok) doDelete(); });
+  } else if (confirm(`Permanently delete "${name}"? This cannot be undone.`)) {
+    doDelete();
+  }
 }
 
 function openGiftForm(gift = null) {
@@ -302,7 +406,7 @@ function openGiftForm(gift = null) {
   document.getElementById("f-emoji").value = gift ? gift.emoji : "🎁";
   document.getElementById("f-player-price").value = gift ? gift.player_price : "";
   document.getElementById("f-reseller-price").value = gift ? gift.reseller_price : "";
-  document.getElementById("f-giftid").disabled = !!gift; // gift_id immutable once created
+  document.getElementById("f-giftid").disabled = !!gift;
   document.getElementById("file-label-note").textContent = gift ? "(leave empty to keep current)" : "";
   document.getElementById("f-file").value = "";
   document.getElementById("preview-box").classList.add("hidden");
@@ -326,7 +430,7 @@ document.getElementById("f-file").addEventListener("change", async (e) => {
     const json = JSON.parse(await file.text());
     previewAnim = lottie.loadAnimation({ container: box, renderer: "svg", loop: true, autoplay: true, animationData: json });
   } catch {
-    box.innerHTML = `<span style="color:#ff8a8a;font-size:12px;">Invalid JSON file</span>`;
+    box.innerHTML = `<span style="color:#ff6b6b;font-size:12px;">Invalid JSON file</span>`;
   }
 });
 
@@ -338,7 +442,6 @@ async function submitGift() {
   const resellerPrice = document.getElementById("f-reseller-price").value;
   const file = document.getElementById("f-file").files[0];
   const status = document.getElementById("upload-status");
-
   const isEdit = editingGiftId !== null;
 
   if (!name || !giftId || !playerPrice || !resellerPrice || (!isEdit && !file)) {
@@ -346,6 +449,7 @@ async function submitGift() {
     return;
   }
 
+  status.style.color = "#8b8b9a";
   status.textContent = isEdit ? "Saving…" : "Uploading…";
 
   const form = new FormData();
@@ -357,58 +461,50 @@ async function submitGift() {
   if (file) form.append("animation", file);
 
   const url = isEdit ? `${API_BASE}/api/admin/gift/${editingGiftId}` : `${API_BASE}/api/admin/gift`;
-  const method = isEdit ? "PATCH" : "POST";
-
-  const res = await fetch(url, { method, headers: authHeaders(), body: form });
+  const res = await fetch(url, { method: isEdit ? "PATCH" : "POST", headers: authHeaders(), body: form });
 
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
     status.textContent = e.detail || "Failed.";
     return;
   }
 
+  status.style.color = "#4ade80";
   status.textContent = isEdit ? "✅ Saved!" : "✅ Gift added!";
-  setTimeout(() => {
-    closeGiftForm();
-    loadAdminGifts();
-    loadGifts();
-  }, 600);
+  setTimeout(() => { closeGiftForm(); loadAdminGifts(); loadGifts(); }, 600);
 }
 
 // ══════════════════════════════════════════════════════════════
-// ADMIN — USER MANAGEMENT
+// ADMIN — USER MANAGEMENT (grouped by role)
 // ══════════════════════════════════════════════════════════════
+const ROLE_ORDER = ["user", "reseller", "admin", "owner"];
+const ROLE_LABELS = { user: "👤 Users", reseller: "🏪 Resellers", admin: "🛠️ Admins", owner: "👑 Owner" };
 let allUsers = [];
 
 async function loadUsers() {
   const res = await fetch(`${API_BASE}/api/admin/users`, { headers: authHeaders() });
   if (!res.ok) return;
-  const data = await res.json();
-  allUsers = data.users;
+  allUsers = (await res.json()).users;
   renderUsers(allUsers);
 }
 
 function filterUsers() {
   const q = document.getElementById("user-search").value.trim().toLowerCase().replace(/^@/, "");
   if (!q) { renderUsers(allUsers); return; }
-  const filtered = allUsers.filter((u) => {
-    const idMatch = String(u.user_id).includes(q);
-    const nameMatch = (u.username || "").toLowerCase().includes(q);
-    const firstMatch = (u.first_name || "").toLowerCase().includes(q);
-    return idMatch || nameMatch || firstMatch;
-  });
-  renderUsers(filtered);
+  renderUsers(allUsers.filter((u) =>
+    String(u.user_id).includes(q) ||
+    (u.username || "").toLowerCase().includes(q) ||
+    (u.first_name || "").toLowerCase().includes(q)
+  ));
 }
-
-const ROLE_ORDER = ["user", "reseller", "admin", "owner"];
-const ROLE_LABELS = { user: "👤 Users", reseller: "🏪 Resellers", admin: "🛠️ Admins", owner: "👑 Owner" };
 
 function renderUsers(users) {
   const list = document.getElementById("user-list");
   list.innerHTML = "";
 
   if (!users.length) {
-    list.innerHTML = `<p style="text-align:center;color:#888;padding:20px 0;">No users found.</p>`;
+    list.innerHTML = `<p class="empty-state">No users found.</p>`;
     return;
   }
 
@@ -419,12 +515,10 @@ function renderUsers(users) {
   ROLE_ORDER.forEach((roleKey) => {
     const group = grouped[roleKey];
     if (!group.length) return;
-
     const header = document.createElement("div");
     header.className = "group-header";
     header.textContent = `${ROLE_LABELS[roleKey]} (${group.length})`;
     list.appendChild(header);
-
     group.forEach((u) => list.appendChild(buildUserRow(u)));
   });
 }
@@ -440,7 +534,6 @@ function buildUserRow(u) {
       <div class="subtitle">
         <span class="badge-role ${u.role}">${u.role}</span>
         ${u.banned ? `<span class="badge-role banned">banned</span>` : ""}
-        <span style="color:#ffd75e;">${u.balance || 0} ⭐</span>
       </div>
     </div>
     <div class="actions"></div>
@@ -453,12 +546,6 @@ function buildUserRow(u) {
     roleBtn.textContent = "Role";
     roleBtn.onclick = () => openRoleModal(u);
     actions.appendChild(roleBtn);
-
-    const balBtn = document.createElement("button");
-    balBtn.className = "pill-btn neutral";
-    balBtn.textContent = "💰";
-    balBtn.onclick = () => openBalanceModal(u);
-    actions.appendChild(balBtn);
 
     const banBtn = document.createElement("button");
     banBtn.className = `pill-btn ${u.banned ? "success" : "danger"}`;
@@ -494,9 +581,7 @@ function openRoleModal(u) {
   document.getElementById("role-modal").classList.remove("hidden");
 }
 
-function closeRoleModal() {
-  document.getElementById("role-modal").classList.add("hidden");
-}
+function closeRoleModal() { document.getElementById("role-modal").classList.add("hidden"); }
 
 async function setRole(role) {
   const res = await fetch(`${API_BASE}/api/admin/users/${roleTargetUid}/role`, {
@@ -504,11 +589,7 @@ async function setRole(role) {
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ role }),
   });
-  if (res.ok) {
-    closeRoleModal();
-    await loadUsers();
-    filterUsers();
-  }
+  if (res.ok) { closeRoleModal(); await loadUsers(); filterUsers(); }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -520,26 +601,21 @@ function openAddUserForm() {
   const opts = document.getElementById("au-role-options");
   opts.innerHTML = "";
   const roles = currentUser.role === "owner" ? ["user", "reseller", "admin"] : ["user", "reseller"];
-  let selectedRole = "reseller";
-  roles.forEach((r) => {
+  roles.forEach((r, i) => {
     const btn = document.createElement("button");
-    btn.className = "role-option-btn" + (r === selectedRole ? " current" : "");
+    btn.className = "role-option-btn" + (i === 0 ? " current" : "");
     btn.textContent = r.charAt(0).toUpperCase() + r.slice(1);
+    btn.dataset.role = r;
     btn.onclick = () => {
-      selectedRole = r;
       opts.querySelectorAll(".role-option-btn").forEach((b) => b.classList.remove("current"));
       btn.classList.add("current");
     };
-    btn.dataset.role = r;
     opts.appendChild(btn);
   });
-  opts.dataset.selected = selectedRole;
   document.getElementById("add-user-modal").classList.remove("hidden");
 }
 
-function closeAddUserForm() {
-  document.getElementById("add-user-modal").classList.add("hidden");
-}
+function closeAddUserForm() { document.getElementById("add-user-modal").classList.add("hidden"); }
 
 async function submitAddUser() {
   const uid = document.getElementById("au-userid").value.trim();
@@ -549,6 +625,7 @@ async function submitAddUser() {
 
   if (!uid) { status.textContent = "Enter a Telegram user ID."; return; }
 
+  status.style.color = "#8b8b9a";
   status.textContent = "Adding…";
   const res = await fetch(`${API_BASE}/api/admin/users`, {
     method: "POST",
@@ -558,51 +635,14 @@ async function submitAddUser() {
 
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
     status.textContent = e.detail || "Failed to add user.";
     return;
   }
 
+  status.style.color = "#4ade80";
   status.textContent = "✅ Added!";
   setTimeout(() => { closeAddUserForm(); loadUsers(); }, 500);
-}
-
-// ══════════════════════════════════════════════════════════════
-// BALANCE ADJUSTMENT
-// ══════════════════════════════════════════════════════════════
-let balanceTargetUid = null;
-
-function openBalanceModal(u) {
-  balanceTargetUid = u.user_id;
-  document.getElementById("balance-target-name").textContent = u.username ? `@${u.username}` : (u.first_name || `#${u.user_id}`);
-  document.getElementById("balance-current").textContent = `Current: ${u.balance || 0} ⭐`;
-  document.getElementById("bal-amount").value = "";
-  document.getElementById("balance-status").textContent = "";
-  document.getElementById("balance-modal").classList.remove("hidden");
-}
-
-function closeBalanceModal() {
-  document.getElementById("balance-modal").classList.add("hidden");
-}
-
-async function submitBalance() {
-  const amount = document.getElementById("bal-amount").value;
-  const status = document.getElementById("balance-status");
-  if (!amount) { status.textContent = "Enter an amount."; return; }
-
-  const res = await fetch(`${API_BASE}/api/admin/users/${balanceTargetUid}/balance`, {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ amount: Number(amount) }),
-  });
-
-  if (!res.ok) {
-    const e = await res.json().catch(() => ({}));
-    status.textContent = e.detail || "Failed.";
-    return;
-  }
-
-  status.textContent = "✅ Updated!";
-  setTimeout(async () => { closeBalanceModal(); await loadUsers(); filterUsers(); }, 500);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -614,5 +654,4 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// ══════════════════════════════════════════════════════════════
 authenticate();

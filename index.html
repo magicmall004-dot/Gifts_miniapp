@@ -16,14 +16,15 @@
   </div>
 
   <div id="error" class="screen center hidden">
+    <div class="error-icon">⚠️</div>
     <p id="error-text">Something went wrong.</p>
   </div>
 
   <div id="app" class="screen hidden">
     <header class="topbar">
       <div class="role-badge" id="role-badge">user</div>
-      <h1 id="page-title">🎁 Gifts Shop</h1>
-      <div style="width:40px"></div>
+      <h1 id="page-title">Gifts Shop</h1>
+      <div style="width:52px"></div>
     </header>
 
     <!-- ── SHOP TAB ───────────────────────────────────────── -->
@@ -31,23 +32,31 @@
       <div id="gift-grid" class="grid"></div>
     </section>
 
+    <!-- ── MY ORDERS TAB (everyone) ───────────────────────── -->
+    <section id="tab-orders" class="tab-content hidden">
+      <div id="orders-list" class="list"></div>
+    </section>
+
     <!-- ── MANAGE GIFTS TAB (owner/admin) ────────────────── -->
     <section id="tab-gifts" class="tab-content hidden">
-      <button class="btn-add-floating" onclick="openGiftForm()">+ Add New Gift</button>
+      <button class="btn-add-floating" onclick="openGiftForm()">＋ Add New Gift</button>
       <div id="admin-gift-list" class="list"></div>
     </section>
 
     <!-- ── MANAGE USERS TAB (owner/admin) ────────────────── -->
     <section id="tab-users" class="tab-content hidden">
-      <input id="user-search" class="search-input" placeholder="Search by user ID or username" oninput="filterUsers()">
-      <button class="btn-add-floating" onclick="openAddUserForm()">+ Add User by ID</button>
+      <input id="user-search" class="search-input" placeholder="🔍 Search by user ID or username" oninput="filterUsers()">
+      <button class="btn-add-floating" onclick="openAddUserForm()">＋ Add User by ID</button>
       <div id="user-list" class="list"></div>
     </section>
 
-    <!-- ── BOTTOM NAV (owner/admin only shows extra tabs) ──── -->
+    <!-- ── BOTTOM NAV ─────────────────────────────────────── -->
     <nav class="bottom-nav" id="bottom-nav">
       <button class="nav-btn active" data-tab="shop" onclick="switchTab('shop')">
         <span>🛍️</span><small>Shop</small>
+      </button>
+      <button class="nav-btn" data-tab="orders" onclick="switchTab('orders')">
+        <span>📦</span><small>Orders</small>
       </button>
       <button class="nav-btn hidden" data-tab="gifts" id="nav-gifts" onclick="switchTab('gifts')">
         <span>🎁</span><small>Gifts</small>
@@ -80,6 +89,18 @@
     </div>
   </div>
 
+  <!-- Role picker modal -->
+  <div id="role-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Set Role</h2>
+      <p id="role-target-name" class="modal-subtext"></p>
+      <div class="role-options" id="role-options"></div>
+      <div class="modal-actions">
+        <button onclick="closeRoleModal()" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Add user by ID modal -->
   <div id="add-user-modal" class="modal hidden">
     <div class="modal-card">
@@ -94,55 +115,30 @@
     </div>
   </div>
 
-  <!-- Balance adjust modal -->
-  <div id="balance-modal" class="modal hidden">
-    <div class="modal-card">
-      <h2>Adjust Balance</h2>
-      <p id="balance-target-name" style="color:#aaa;font-size:13px;"></p>
-      <p id="balance-current" style="color:#ffd75e;font-size:14px;font-weight:600;"></p>
-      <input id="bal-amount" type="number" placeholder="Amount (use negative to subtract)">
-      <div class="modal-actions">
-        <button onclick="closeBalanceModal()" class="btn-secondary">Cancel</button>
-        <button onclick="submitBalance()" class="btn-primary">Apply</button>
-      </div>
-      <p id="balance-status"></p>
-    </div>
-  </div>
-
-  <!-- Role picker modal -->
-  <div id="role-modal" class="modal hidden">
-    <div class="modal-card">
-      <h2>Set Role</h2>
-      <p id="role-target-name" style="color:#aaa;font-size:13px;"></p>
-      <div class="role-options" id="role-options"></div>
-      <div class="modal-actions">
-        <button onclick="closeRoleModal()" class="btn-secondary">Cancel</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Gift detail / buy modal -->
   <div id="viewer-modal" class="modal hidden" onclick="closeViewer()">
     <div class="modal-card" onclick="event.stopPropagation()">
-      <div id="viewer-anim" class="viewer-anim" style="margin:0 auto;"></div>
-      <h2 id="viewer-name" style="text-align:center;"></h2>
-      <p id="viewer-price" style="text-align:center;color:#ffd75e;font-size:15px;font-weight:600;"></p>
+      <div id="viewer-anim" class="viewer-anim"></div>
+      <h2 id="viewer-name" class="viewer-title"></h2>
+      <p id="viewer-price" class="viewer-price"></p>
 
       <div id="buy-step-choice">
-        <button class="btn-primary" style="width:100%;margin-bottom:8px;" onclick="startBuy(false)">🎁 Buy for Myself</button>
-        <button class="btn-primary" style="width:100%;background:#2a2a35;color:#9fd3ff;" onclick="startBuy(true)">🔗 Buy for Someone Else</button>
+        <button class="btn-primary btn-block" onclick="startBuy(false)">🎁 Buy for Myself</button>
+        <button class="btn-secondary btn-block" onclick="startBuy(true)">🔗 Buy for Someone Else</button>
       </div>
 
       <div id="buy-step-comment" class="hidden">
-        <input id="buy-comment" placeholder="Add a comment (optional)">
+        <div id="comment-preview" class="comment-preview hidden"></div>
+        <button class="btn-secondary btn-block" id="comment-btn" onclick="requestComment()">💬 Add Comment (via bot chat)</button>
+        <p class="hint-text">Comments support premium emoji &amp; formatting — you'll type it in your chat with the bot, then come back here.</p>
         <div class="modal-actions">
           <button class="btn-secondary" onclick="backToChoice()">Back</button>
-          <button class="btn-primary" onclick="confirmBuy()">Continue to Pay</button>
+          <button class="btn-primary" onclick="goToPay()">Continue to Pay</button>
         </div>
       </div>
 
-      <p id="buy-status" style="text-align:center;font-size:12px;color:#ff8a8a;min-height:16px;"></p>
-      <button class="btn-secondary" style="width:100%;" onclick="closeViewer()">Close</button>
+      <p id="buy-status" class="buy-status"></p>
+      <button class="btn-secondary btn-block" onclick="closeViewer()">Close</button>
     </div>
   </div>
 
