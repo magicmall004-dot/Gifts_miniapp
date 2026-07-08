@@ -113,7 +113,29 @@ body {
   margin: 12px 0 16px;
 }
 
+.search-input {
+  width: 100%;
+  background: #1a1a22;
+  border: 1px solid #2a2a35;
+  color: white;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  margin: 12px 0 16px;
+}
+
 .list { display: flex; flex-direction: column; gap: 10px; }
+
+.group-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 14px 0 2px;
+  padding-left: 2px;
+}
+.group-header:first-child { margin-top: 0; }
 
 .list-row {
   background: #1a1a22;

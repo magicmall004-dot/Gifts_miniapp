@@ -99,7 +99,7 @@ function renderGifts(gifts) {
   gifts.forEach((gift) => {
     const card = document.createElement("div");
     card.className = "gift-card";
-    card.onclick = () => openViewer(gift.animation_url);
+    card.onclick = () => openViewer(gift);
 
     const animBox = document.createElement("div");
     animBox.className = "gift-anim";
@@ -129,23 +129,90 @@ function renderGifts(gifts) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// VIEWER
+// GIFT DETAIL / BUY FLOW
 // ══════════════════════════════════════════════════════════════
 let viewerAnim = null;
+let currentGift = null;
+let buyForOther = false;
 
-function openViewer(url) {
-  if (!url) return;
-  const modal = document.getElementById("viewer-modal");
+function openViewer(gift) {
+  currentGift = gift;
   const box = document.getElementById("viewer-anim");
   box.innerHTML = "";
-  modal.classList.remove("hidden");
-  viewerAnim = lottie.loadAnimation({ container: box, renderer: "svg", loop: true, autoplay: true, path: url });
+  document.getElementById("viewer-name").textContent = `${gift.emoji || "🎁"} ${gift.name}`;
+  document.getElementById("viewer-price").textContent = gift.price > 0 ? `${gift.price} ⭐` : "";
+  document.getElementById("buy-status").textContent = "";
+  document.getElementById("buy-comment").value = "";
+  backToChoice();
+
+  const canBuy = currentUser && currentUser.role !== "owner" && currentUser.role !== "admin" && gift.price > 0;
+  document.getElementById("buy-step-choice").classList.toggle("hidden", !canBuy);
+  if (!canBuy && (currentUser.role === "owner" || currentUser.role === "admin")) {
+    document.getElementById("buy-status").textContent = "Staff accounts can preview gifts but not purchase.";
+    document.getElementById("buy-status").style.color = "#888";
+  }
+
+  document.getElementById("viewer-modal").classList.remove("hidden");
+
+  if (gift.animation_url) {
+    viewerAnim = lottie.loadAnimation({ container: box, renderer: "svg", loop: true, autoplay: true, path: gift.animation_url });
+  }
   tg.HapticFeedback?.impactOccurred("light");
 }
 
 function closeViewer() {
   document.getElementById("viewer-modal").classList.add("hidden");
   if (viewerAnim) { viewerAnim.destroy(); viewerAnim = null; }
+  currentGift = null;
+}
+
+function startBuy(forOther) {
+  buyForOther = forOther;
+  document.getElementById("buy-step-choice").classList.add("hidden");
+  document.getElementById("buy-step-comment").classList.remove("hidden");
+}
+
+function backToChoice() {
+  document.getElementById("buy-step-comment").classList.add("hidden");
+  document.getElementById("buy-step-choice").classList.remove("hidden");
+}
+
+async function confirmBuy() {
+  const status = document.getElementById("buy-status");
+  status.style.color = "#ff8a8a";
+  status.textContent = "Creating invoice…";
+
+  const comment = document.getElementById("buy-comment").value.trim();
+
+  const res = await fetch(`${API_BASE}/api/buy`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ gift_db_id: currentGift.id, for_other: buyForOther, comment_text: comment }),
+  });
+
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.textContent = e.detail || "Could not create order.";
+    return;
+  }
+
+  const data = await res.json();
+  status.style.color = "#8aff9e";
+  status.textContent = "Opening payment…";
+
+  tg.openInvoice(data.invoice_link, (paymentStatus) => {
+    if (paymentStatus === "paid") {
+      status.textContent = buyForOther
+        ? "✅ Paid! Check your bot chat for the claim link."
+        : "✅ Paid! Check your Telegram profile gifts.";
+      tg.HapticFeedback?.notificationOccurred("success");
+      setTimeout(() => { closeViewer(); loadGifts(); }, 1800);
+    } else if (paymentStatus === "cancelled") {
+      status.textContent = "Payment cancelled.";
+    } else if (paymentStatus === "failed") {
+      status.textContent = "Payment failed. Try again.";
+    }
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -188,8 +255,35 @@ function renderAdminGifts(gifts) {
     row.querySelector(".edit").onclick = () => openGiftForm(g);
     const toggleBtn = row.querySelector(g.active ? ".danger" : ".success");
     toggleBtn.onclick = () => toggleGiftActive(g.id, g.active);
+
+    if (currentUser.role === "owner") {
+      const delBtn = document.createElement("button");
+      delBtn.className = "pill-btn danger";
+      delBtn.textContent = "Delete";
+      delBtn.onclick = () => deleteGiftPermanently(g.id, g.name);
+      row.querySelector(".actions").appendChild(delBtn);
+    }
+
     list.appendChild(row);
   });
+}
+
+function deleteGiftPermanently(gid, name) {
+  const doDelete = async () => {
+    const res = await fetch(`${API_BASE}/api/admin/gift/${gid}/hard-delete`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (res.ok) loadAdminGifts();
+  };
+
+  if (tg.showConfirm) {
+    tg.showConfirm(`Permanently delete "${name}"? This cannot be undone.`, (ok) => {
+      if (ok) doDelete();
+    });
+  } else if (confirm(`Permanently delete "${name}"? This cannot be undone.`)) {
+    doDelete();
+  }
 }
 
 async function toggleGiftActive(gid, isActive) {
@@ -284,56 +378,102 @@ async function submitGift() {
 // ══════════════════════════════════════════════════════════════
 // ADMIN — USER MANAGEMENT
 // ══════════════════════════════════════════════════════════════
+let allUsers = [];
+
 async function loadUsers() {
   const res = await fetch(`${API_BASE}/api/admin/users`, { headers: authHeaders() });
   if (!res.ok) return;
   const data = await res.json();
-  renderUsers(data.users);
+  allUsers = data.users;
+  renderUsers(allUsers);
 }
+
+function filterUsers() {
+  const q = document.getElementById("user-search").value.trim().toLowerCase().replace(/^@/, "");
+  if (!q) { renderUsers(allUsers); return; }
+  const filtered = allUsers.filter((u) => {
+    const idMatch = String(u.user_id).includes(q);
+    const nameMatch = (u.username || "").toLowerCase().includes(q);
+    const firstMatch = (u.first_name || "").toLowerCase().includes(q);
+    return idMatch || nameMatch || firstMatch;
+  });
+  renderUsers(filtered);
+}
+
+const ROLE_ORDER = ["user", "reseller", "admin", "owner"];
+const ROLE_LABELS = { user: "👤 Users", reseller: "🏪 Resellers", admin: "🛠️ Admins", owner: "👑 Owner" };
 
 function renderUsers(users) {
   const list = document.getElementById("user-list");
   list.innerHTML = "";
 
-  users.forEach((u) => {
-    const row = document.createElement("div");
-    row.className = "list-row";
-    const displayName = u.username ? `@${u.username}` : (u.first_name || `#${u.user_id}`);
-    row.innerHTML = `
-      <div class="thumb">👤</div>
-      <div class="info">
-        <div class="title">${escapeHtml(displayName)}</div>
-        <div class="subtitle">
-          <span class="badge-role ${u.role}">${u.role}</span>
-          ${u.banned ? `<span class="badge-role banned">banned</span>` : ""}
-        </div>
-      </div>
-      <div class="actions"></div>
-    `;
-    const actions = row.querySelector(".actions");
+  if (!users.length) {
+    list.innerHTML = `<p style="text-align:center;color:#888;padding:20px 0;">No users found.</p>`;
+    return;
+  }
 
-    if (!u.is_owner) {
-      const roleBtn = document.createElement("button");
-      roleBtn.className = "pill-btn neutral";
-      roleBtn.textContent = "Role";
-      roleBtn.onclick = () => openRoleModal(u);
-      actions.appendChild(roleBtn);
+  const grouped = {};
+  ROLE_ORDER.forEach((r) => (grouped[r] = []));
+  users.forEach((u) => grouped[u.role]?.push(u));
 
-      const banBtn = document.createElement("button");
-      banBtn.className = `pill-btn ${u.banned ? "success" : "danger"}`;
-      banBtn.textContent = u.banned ? "Unban" : "Ban";
-      banBtn.onclick = () => toggleBan(u.user_id, u.banned);
-      actions.appendChild(banBtn);
-    }
+  ROLE_ORDER.forEach((roleKey) => {
+    const group = grouped[roleKey];
+    if (!group.length) return;
 
-    list.appendChild(row);
+    const header = document.createElement("div");
+    header.className = "group-header";
+    header.textContent = `${ROLE_LABELS[roleKey]} (${group.length})`;
+    list.appendChild(header);
+
+    group.forEach((u) => list.appendChild(buildUserRow(u)));
   });
+}
+
+function buildUserRow(u) {
+  const row = document.createElement("div");
+  row.className = "list-row";
+  const displayName = u.username ? `@${u.username}` : (u.first_name || `#${u.user_id}`);
+  row.innerHTML = `
+    <div class="thumb">👤</div>
+    <div class="info">
+      <div class="title">${escapeHtml(displayName)} <span style="color:#666;font-weight:400;">#${u.user_id}</span></div>
+      <div class="subtitle">
+        <span class="badge-role ${u.role}">${u.role}</span>
+        ${u.banned ? `<span class="badge-role banned">banned</span>` : ""}
+        <span style="color:#ffd75e;">${u.balance || 0} ⭐</span>
+      </div>
+    </div>
+    <div class="actions"></div>
+  `;
+  const actions = row.querySelector(".actions");
+
+  if (!u.is_owner) {
+    const roleBtn = document.createElement("button");
+    roleBtn.className = "pill-btn neutral";
+    roleBtn.textContent = "Role";
+    roleBtn.onclick = () => openRoleModal(u);
+    actions.appendChild(roleBtn);
+
+    const balBtn = document.createElement("button");
+    balBtn.className = "pill-btn neutral";
+    balBtn.textContent = "💰";
+    balBtn.onclick = () => openBalanceModal(u);
+    actions.appendChild(balBtn);
+
+    const banBtn = document.createElement("button");
+    banBtn.className = `pill-btn ${u.banned ? "success" : "danger"}`;
+    banBtn.textContent = u.banned ? "Unban" : "Ban";
+    banBtn.onclick = () => toggleBan(u.user_id, u.banned);
+    actions.appendChild(banBtn);
+  }
+
+  return row;
 }
 
 async function toggleBan(uid, isBanned) {
   const path = isBanned ? "unban" : "ban";
   const res = await fetch(`${API_BASE}/api/admin/users/${uid}/${path}`, { method: "POST", headers: authHeaders() });
-  if (res.ok) loadUsers();
+  if (res.ok) { await loadUsers(); filterUsers(); }
 }
 
 let roleTargetUid = null;
@@ -366,8 +506,103 @@ async function setRole(role) {
   });
   if (res.ok) {
     closeRoleModal();
-    loadUsers();
+    await loadUsers();
+    filterUsers();
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ADD USER BY ID
+// ══════════════════════════════════════════════════════════════
+function openAddUserForm() {
+  document.getElementById("au-userid").value = "";
+  document.getElementById("add-user-status").textContent = "";
+  const opts = document.getElementById("au-role-options");
+  opts.innerHTML = "";
+  const roles = currentUser.role === "owner" ? ["user", "reseller", "admin"] : ["user", "reseller"];
+  let selectedRole = "reseller";
+  roles.forEach((r) => {
+    const btn = document.createElement("button");
+    btn.className = "role-option-btn" + (r === selectedRole ? " current" : "");
+    btn.textContent = r.charAt(0).toUpperCase() + r.slice(1);
+    btn.onclick = () => {
+      selectedRole = r;
+      opts.querySelectorAll(".role-option-btn").forEach((b) => b.classList.remove("current"));
+      btn.classList.add("current");
+    };
+    btn.dataset.role = r;
+    opts.appendChild(btn);
+  });
+  opts.dataset.selected = selectedRole;
+  document.getElementById("add-user-modal").classList.remove("hidden");
+}
+
+function closeAddUserForm() {
+  document.getElementById("add-user-modal").classList.add("hidden");
+}
+
+async function submitAddUser() {
+  const uid = document.getElementById("au-userid").value.trim();
+  const status = document.getElementById("add-user-status");
+  const selected = document.querySelector("#au-role-options .role-option-btn.current");
+  const role = selected ? selected.dataset.role : "reseller";
+
+  if (!uid) { status.textContent = "Enter a Telegram user ID."; return; }
+
+  status.textContent = "Adding…";
+  const res = await fetch(`${API_BASE}/api/admin/users`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ user_id: Number(uid), role }),
+  });
+
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.textContent = e.detail || "Failed to add user.";
+    return;
+  }
+
+  status.textContent = "✅ Added!";
+  setTimeout(() => { closeAddUserForm(); loadUsers(); }, 500);
+}
+
+// ══════════════════════════════════════════════════════════════
+// BALANCE ADJUSTMENT
+// ══════════════════════════════════════════════════════════════
+let balanceTargetUid = null;
+
+function openBalanceModal(u) {
+  balanceTargetUid = u.user_id;
+  document.getElementById("balance-target-name").textContent = u.username ? `@${u.username}` : (u.first_name || `#${u.user_id}`);
+  document.getElementById("balance-current").textContent = `Current: ${u.balance || 0} ⭐`;
+  document.getElementById("bal-amount").value = "";
+  document.getElementById("balance-status").textContent = "";
+  document.getElementById("balance-modal").classList.remove("hidden");
+}
+
+function closeBalanceModal() {
+  document.getElementById("balance-modal").classList.add("hidden");
+}
+
+async function submitBalance() {
+  const amount = document.getElementById("bal-amount").value;
+  const status = document.getElementById("balance-status");
+  if (!amount) { status.textContent = "Enter an amount."; return; }
+
+  const res = await fetch(`${API_BASE}/api/admin/users/${balanceTargetUid}/balance`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ amount: Number(amount) }),
+  });
+
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.textContent = e.detail || "Failed.";
+    return;
+  }
+
+  status.textContent = "✅ Updated!";
+  setTimeout(async () => { closeBalanceModal(); await loadUsers(); filterUsers(); }, 500);
 }
 
 // ══════════════════════════════════════════════════════════════
