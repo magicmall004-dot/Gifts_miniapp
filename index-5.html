@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Gifts Shop</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="loading" class="screen center">
+    <div class="spinner"></div>
+    <p>Loading your shop…</p>
+  </div>
+
+  <div id="error" class="screen center hidden">
+    <p id="error-text">Something went wrong.</p>
+  </div>
+
+  <div id="app" class="screen hidden">
+    <header class="topbar">
+      <div class="role-badge" id="role-badge">user</div>
+      <h1>🎁 Gifts Shop</h1>
+      <button id="admin-btn" class="hidden" onclick="openUpload()">+ Add Gift</button>
+    </header>
+
+    <div id="gift-grid" class="grid"></div>
+  </div>
+
+  <!-- Owner/Admin upload panel -->
+  <div id="upload-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Add New Gift</h2>
+      <input id="f-name" placeholder="Gift name">
+      <input id="f-giftid" placeholder="Telegram Gift API ID">
+      <input id="f-emoji" placeholder="Emoji (optional)" value="🎁">
+      <input id="f-player-price" type="number" placeholder="Player price (Stars)">
+      <input id="f-reseller-price" type="number" placeholder="Reseller price (Stars)">
+      <label class="file-label">
+        Gift animation (.json)
+        <input id="f-file" type="file" accept="application/json">
+      </label>
+      <div id="preview-box" class="preview-box hidden"></div>
+      <div class="modal-actions">
+        <button onclick="closeUpload()" class="btn-secondary">Cancel</button>
+        <button onclick="submitGift()" class="btn-primary">Upload</button>
+      </div>
+      <p id="upload-status"></p>
+    </div>
+  </div>
+
+  <!-- Full-screen gift animation viewer -->
+  <div id="viewer-modal" class="modal hidden" onclick="closeViewer()">
+    <div id="viewer-anim" class="viewer-anim"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
