@@ -5,6 +5,7 @@ body {
   background: var(--tg-theme-bg-color, #0f0f14);
   color: var(--tg-theme-text-color, #ffffff);
   min-height: 100vh;
+  padding-bottom: 76px; /* space for bottom nav */
 }
 
 .hidden { display: none !important; }
@@ -36,7 +37,7 @@ body {
   background: var(--tg-theme-bg-color, #0f0f14);
   z-index: 5;
 }
-.topbar h1 { font-size: 18px; flex: 1; text-align: center; }
+.topbar h1 { font-size: 17px; flex: 1; text-align: center; }
 
 .role-badge {
   font-size: 11px;
@@ -46,17 +47,29 @@ body {
   color: #9fd3ff;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
-#admin-btn {
-  background: #3d8bff;
-  color: white;
-  border: none;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-size: 13px;
+/* ── Bottom nav ── */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  display: flex;
+  background: #16161d;
+  border-top: 1px solid #262632;
+  padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+  z-index: 10;
 }
+.nav-btn {
+  flex: 1;
+  background: none; border: none; color: #777;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 10px;
+  padding: 4px;
+}
+.nav-btn span { font-size: 20px; }
+.nav-btn.active { color: #6ab0ff; }
 
+/* ── Shop grid ── */
 .grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -85,6 +98,76 @@ body {
 .gift-name { font-size: 13px; font-weight: 600; margin-top: 6px; }
 .gift-price { font-size: 12px; color: #ffd75e; margin-top: 2px; }
 
+/* ── Admin lists (gifts / users) ── */
+.tab-content { padding: 0 16px 24px; position: relative; }
+
+.btn-add-floating {
+  width: 100%;
+  background: #3d8bff;
+  color: white;
+  border: none;
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 12px 0 16px;
+}
+
+.list { display: flex; flex-direction: column; gap: 10px; }
+
+.list-row {
+  background: #1a1a22;
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.list-row .thumb {
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  background: #0f0f14;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  font-size: 20px;
+}
+
+.list-row .info { flex: 1; min-width: 0; }
+.list-row .info .title { font-size: 14px; font-weight: 600; }
+.list-row .info .subtitle { font-size: 12px; color: #888; margin-top: 2px; }
+.list-row .info .subtitle.inactive { color: #ff8a8a; }
+
+.list-row .actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.pill-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pill-btn.edit { background: #2a2a35; color: #9fd3ff; }
+.pill-btn.danger { background: #3a1f1f; color: #ff8a8a; }
+.pill-btn.success { background: #1f3a24; color: #8aff9e; }
+.pill-btn.neutral { background: #2a2a35; color: #ccc; }
+
+.badge-role {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #2a2a35;
+  color: #9fd3ff;
+  text-transform: uppercase;
+}
+.badge-role.owner { color: #ffd75e; }
+.badge-role.admin { color: #ff9ed8; }
+.badge-role.reseller { color: #8aff9e; }
+.badge-role.banned { color: #ff8a8a; }
+
+/* ── Modals ── */
 .modal {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.75);
@@ -102,6 +185,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 85vh;
+  overflow-y: auto;
 }
 .modal-card h2 { font-size: 16px; margin-bottom: 4px; }
 .modal-card input {
@@ -139,6 +224,18 @@ body {
 .btn-secondary { background: #2a2a35; color: #ccc; }
 
 #upload-status { font-size: 12px; color: #ff8a8a; min-height: 16px; }
+
+.role-options { display: flex; flex-direction: column; gap: 8px; }
+.role-option-btn {
+  background: #0f0f14;
+  border: 1px solid #333;
+  color: white;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  text-align: left;
+}
+.role-option-btn.current { border-color: #6ab0ff; color: #6ab0ff; }
 
 .viewer-anim {
   width: 260px; height: 260px;
