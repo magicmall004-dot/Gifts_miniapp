@@ -22,32 +22,71 @@
   <div id="app" class="screen hidden">
     <header class="topbar">
       <div class="role-badge" id="role-badge">user</div>
-      <h1>🎁 Gifts Shop</h1>
-      <button id="admin-btn" class="hidden" onclick="openUpload()">+ Add Gift</button>
+      <h1 id="page-title">🎁 Gifts Shop</h1>
+      <div style="width:40px"></div>
     </header>
 
-    <div id="gift-grid" class="grid"></div>
+    <!-- ── SHOP TAB ───────────────────────────────────────── -->
+    <section id="tab-shop" class="tab-content">
+      <div id="gift-grid" class="grid"></div>
+    </section>
+
+    <!-- ── MANAGE GIFTS TAB (owner/admin) ────────────────── -->
+    <section id="tab-gifts" class="tab-content hidden">
+      <button class="btn-add-floating" onclick="openGiftForm()">+ Add New Gift</button>
+      <div id="admin-gift-list" class="list"></div>
+    </section>
+
+    <!-- ── MANAGE USERS TAB (owner/admin) ────────────────── -->
+    <section id="tab-users" class="tab-content hidden">
+      <div id="user-list" class="list"></div>
+    </section>
+
+    <!-- ── BOTTOM NAV (owner/admin only shows extra tabs) ──── -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <button class="nav-btn active" data-tab="shop" onclick="switchTab('shop')">
+        <span>🛍️</span><small>Shop</small>
+      </button>
+      <button class="nav-btn hidden" data-tab="gifts" id="nav-gifts" onclick="switchTab('gifts')">
+        <span>🎁</span><small>Gifts</small>
+      </button>
+      <button class="nav-btn hidden" data-tab="users" id="nav-users" onclick="switchTab('users')">
+        <span>👥</span><small>Users</small>
+      </button>
+    </nav>
   </div>
 
-  <!-- Owner/Admin upload panel -->
-  <div id="upload-modal" class="modal hidden">
+  <!-- Add/Edit gift modal -->
+  <div id="gift-modal" class="modal hidden">
     <div class="modal-card">
-      <h2>Add New Gift</h2>
+      <h2 id="gift-modal-title">Add New Gift</h2>
       <input id="f-name" placeholder="Gift name">
       <input id="f-giftid" placeholder="Telegram Gift API ID">
       <input id="f-emoji" placeholder="Emoji (optional)" value="🎁">
       <input id="f-player-price" type="number" placeholder="Player price (Stars)">
       <input id="f-reseller-price" type="number" placeholder="Reseller price (Stars)">
       <label class="file-label">
-        Gift animation (.json)
+        Gift animation (.json) <span id="file-label-note"></span>
         <input id="f-file" type="file" accept="application/json">
       </label>
       <div id="preview-box" class="preview-box hidden"></div>
       <div class="modal-actions">
-        <button onclick="closeUpload()" class="btn-secondary">Cancel</button>
-        <button onclick="submitGift()" class="btn-primary">Upload</button>
+        <button onclick="closeGiftForm()" class="btn-secondary">Cancel</button>
+        <button onclick="submitGift()" class="btn-primary" id="gift-submit-btn">Upload</button>
       </div>
       <p id="upload-status"></p>
+    </div>
+  </div>
+
+  <!-- Role picker modal -->
+  <div id="role-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Set Role</h2>
+      <p id="role-target-name" style="color:#aaa;font-size:13px;"></p>
+      <div class="role-options" id="role-options"></div>
+      <div class="modal-actions">
+        <button onclick="closeRoleModal()" class="btn-secondary">Cancel</button>
+      </div>
     </div>
   </div>
 
