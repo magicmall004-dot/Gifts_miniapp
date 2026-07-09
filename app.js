@@ -12,8 +12,9 @@ let animInstances = [];
 let previewAnim = null;
 let editingGiftId = null;
 
-function authHeaders(extra = {}) {
-  return { "X-Telegram-Init-Data": tg.initData, ...extra };
+function withAuth(url) {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}init_data=${encodeURIComponent(tg.initData)}`;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -22,7 +23,7 @@ function authHeaders(extra = {}) {
 async function authenticate() {
   if (!tg.initData) { showError("Open this app from within Telegram."); return; }
 
-  const res = await fetch(`${API_BASE}/api/auth`, { method: "POST", headers: authHeaders() });
+  const res = await fetch(withAuth(`${API_BASE}/api/auth`), { method: "POST" });
   if (res.status === 403) { showError("You are banned from this shop."); return; }
   if (!res.ok) { showError("Login failed. Please reopen the app."); return; }
 
@@ -67,7 +68,7 @@ function switchTab(tab) {
 // SHOP CATALOG
 // ══════════════════════════════════════════════════════════════
 async function loadGifts() {
-  const res = await fetch(`${API_BASE}/api/gifts`, { headers: authHeaders() });
+  const res = await fetch(withAuth(`${API_BASE}/api/gifts`));
   if (!res.ok) { showError("Could not load gifts."); return; }
   renderGifts((await res.json()).gifts);
 }
@@ -163,9 +164,8 @@ async function startBuy(forOther) {
   status.style.color = "#ff6b6b";
   status.textContent = "Creating order…";
 
-  const res = await fetch(`${API_BASE}/api/buy/start`, {
+  const res = await fetch(withAuth(`${API_BASE}/api/buy/start`), {
     method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ gift_db_id: currentGift.id, for_other: forOther }),
   });
 
@@ -196,8 +196,8 @@ async function requestComment() {
   status.textContent = "Check your bot chat — type your comment there…";
   document.getElementById("comment-btn").textContent = "💬 Waiting for your message…";
 
-  const res = await fetch(`${API_BASE}/api/order/${currentOrderId}/request-comment`, {
-    method: "POST", headers: authHeaders(),
+  const res = await fetch(withAuth(`${API_BASE}/api/order/${currentOrderId}/request-comment`), {
+    method: "POST",
   });
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
@@ -210,7 +210,7 @@ async function requestComment() {
 
   if (commentPollTimer) clearInterval(commentPollTimer);
   commentPollTimer = setInterval(async () => {
-    const r = await fetch(`${API_BASE}/api/order/${currentOrderId}`, { headers: authHeaders() });
+    const r = await fetch(withAuth(`${API_BASE}/api/order/${currentOrderId}`));
     if (!r.ok) return;
     const d = await r.json();
     if (d.comment_text) {
@@ -232,8 +232,8 @@ async function goToPay() {
   status.style.color = "#5b8cff";
   status.textContent = "Opening payment…";
 
-  const res = await fetch(`${API_BASE}/api/order/${currentOrderId}/pay`, {
-    method: "POST", headers: authHeaders(),
+  const res = await fetch(withAuth(`${API_BASE}/api/order/${currentOrderId}/pay`), {
+    method: "POST",
   });
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
@@ -265,7 +265,7 @@ async function goToPay() {
 // MY ORDERS
 // ══════════════════════════════════════════════════════════════
 async function loadOrders() {
-  const res = await fetch(`${API_BASE}/api/orders`, { headers: authHeaders() });
+  const res = await fetch(withAuth(`${API_BASE}/api/orders`));
   const list = document.getElementById("orders-list");
   if (!res.ok) { list.innerHTML = `<p class="empty-state">Could not load orders.</p>`; return; }
   const data = await res.json();
@@ -325,7 +325,7 @@ function copyLink(link, btn) {
 // ADMIN — GIFT MANAGEMENT
 // ══════════════════════════════════════════════════════════════
 async function loadAdminGifts() {
-  const res = await fetch(`${API_BASE}/api/admin/gifts`, { headers: authHeaders() });
+  const res = await fetch(withAuth(`${API_BASE}/api/admin/gifts`));
   if (!res.ok) return;
   renderAdminGifts((await res.json()).gifts);
 }
@@ -381,13 +381,13 @@ function renderAdminGifts(gifts) {
 async function toggleGiftActive(gid, isActive) {
   const path = isActive ? `gift/${gid}` : `gift/${gid}/reactivate`;
   const method = isActive ? "DELETE" : "POST";
-  const res = await fetch(`${API_BASE}/api/admin/${path}`, { method, headers: authHeaders() });
+  const res = await fetch(withAuth(`${API_BASE}/api/admin/${path}`), { method });
   if (res.ok) loadAdminGifts();
 }
 
 function deleteGiftPermanently(gid, name) {
   const doDelete = async () => {
-    const res = await fetch(`${API_BASE}/api/admin/gift/${gid}/hard-delete`, { method: "POST", headers: authHeaders() });
+    const res = await fetch(withAuth(`${API_BASE}/api/admin/gift/${gid}/hard-delete`), { method: "POST" });
     if (res.ok) loadAdminGifts();
   };
   if (tg.showConfirm) {
@@ -461,7 +461,7 @@ async function submitGift() {
   if (file) form.append("animation", file);
 
   const url = isEdit ? `${API_BASE}/api/admin/gift/${editingGiftId}` : `${API_BASE}/api/admin/gift`;
-  const res = await fetch(url, { method: isEdit ? "PATCH" : "POST", headers: authHeaders(), body: form });
+  const res = await fetch(withAuth(url), { method: isEdit ? "PATCH" : "POST", body: form });
 
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
@@ -483,7 +483,7 @@ const ROLE_LABELS = { user: "👤 Users", reseller: "🏪 Resellers", admin: "�
 let allUsers = [];
 
 async function loadUsers() {
-  const res = await fetch(`${API_BASE}/api/admin/users`, { headers: authHeaders() });
+  const res = await fetch(withAuth(`${API_BASE}/api/admin/users`));
   if (!res.ok) return;
   allUsers = (await res.json()).users;
   renderUsers(allUsers);
@@ -559,7 +559,7 @@ function buildUserRow(u) {
 
 async function toggleBan(uid, isBanned) {
   const path = isBanned ? "unban" : "ban";
-  const res = await fetch(`${API_BASE}/api/admin/users/${uid}/${path}`, { method: "POST", headers: authHeaders() });
+  const res = await fetch(withAuth(`${API_BASE}/api/admin/users/${uid}/${path}`), { method: "POST" });
   if (res.ok) { await loadUsers(); filterUsers(); }
 }
 
@@ -584,9 +584,8 @@ function openRoleModal(u) {
 function closeRoleModal() { document.getElementById("role-modal").classList.add("hidden"); }
 
 async function setRole(role) {
-  const res = await fetch(`${API_BASE}/api/admin/users/${roleTargetUid}/role`, {
+  const res = await fetch(withAuth(`${API_BASE}/api/admin/users/${roleTargetUid}/role`), {
     method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ role }),
   });
   if (res.ok) { closeRoleModal(); await loadUsers(); filterUsers(); }
@@ -627,9 +626,8 @@ async function submitAddUser() {
 
   status.style.color = "#8b8b9a";
   status.textContent = "Adding…";
-  const res = await fetch(`${API_BASE}/api/admin/users`, {
+  const res = await fetch(withAuth(`${API_BASE}/api/admin/users`), {
     method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ user_id: Number(uid), role }),
   });
 
