@@ -71,13 +71,21 @@
   <div id="gift-modal" class="modal hidden">
     <div class="modal-card">
       <h2 id="gift-modal-title">Add New Gift</h2>
+
+      <div class="nft-fetch-box">
+        <input id="f-nft-link" placeholder="Paste NFT link (t.me/nft/Name-123)">
+        <button class="btn-primary" style="flex-shrink:0;" onclick="lookupNft()" id="nft-fetch-btn">Fetch</button>
+      </div>
+      <p id="nft-fetch-status" class="hint-text"></p>
+      <div id="nft-preview-table" class="nft-preview-table hidden"></div>
+
       <input id="f-name" placeholder="Gift name">
       <input id="f-giftid" placeholder="Telegram Gift API ID">
       <input id="f-emoji" placeholder="Emoji (optional)" value="🎁">
       <input id="f-player-price" type="number" placeholder="Player price (Stars)">
       <input id="f-reseller-price" type="number" placeholder="Reseller price (Stars)">
       <label class="file-label">
-        Gift animation (.json) <span id="file-label-note"></span>
+        Or upload gift animation (.json) manually <span id="file-label-note"></span>
         <input id="f-file" type="file" accept="application/json">
       </label>
       <div id="preview-box" class="preview-box hidden"></div>

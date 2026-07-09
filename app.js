@@ -11,6 +11,7 @@ let currentUser = null;
 let animInstances = [];
 let previewAnim = null;
 let editingGiftId = null;
+let fetchedAnimationJson = null; // set when a gift's animation came from Fragment, not a manual upload
 
 function withAuth(url) {
   const sep = url.includes("?") ? "&" : "?";
@@ -399,6 +400,7 @@ function deleteGiftPermanently(gid, name) {
 
 function openGiftForm(gift = null) {
   editingGiftId = gift ? gift.id : null;
+  fetchedAnimationJson = null;
   document.getElementById("gift-modal-title").textContent = gift ? "Edit Gift" : "Add New Gift";
   document.getElementById("gift-submit-btn").textContent = gift ? "Save" : "Upload";
   document.getElementById("f-name").value = gift ? gift.name : "";
@@ -409,9 +411,72 @@ function openGiftForm(gift = null) {
   document.getElementById("f-giftid").disabled = !!gift;
   document.getElementById("file-label-note").textContent = gift ? "(leave empty to keep current)" : "";
   document.getElementById("f-file").value = "";
+  document.getElementById("f-nft-link").value = "";
+  document.getElementById("nft-fetch-status").textContent = "";
+  document.getElementById("nft-preview-table").classList.add("hidden");
   document.getElementById("preview-box").classList.add("hidden");
   document.getElementById("upload-status").textContent = "";
   document.getElementById("gift-modal").classList.remove("hidden");
+}
+
+async function lookupNft() {
+  const link = document.getElementById("f-nft-link").value.trim();
+  const status = document.getElementById("nft-fetch-status");
+  const table = document.getElementById("nft-preview-table");
+  const btn = document.getElementById("nft-fetch-btn");
+
+  if (!link) { status.style.color = "#ff6b6b"; status.textContent = "Paste an NFT link first."; return; }
+
+  status.style.color = "#8b8b9a";
+  status.textContent = "Fetching from Fragment…";
+  table.classList.add("hidden");
+  btn.disabled = true;
+
+  const res = await fetch(withAuth(`${API_BASE}/api/admin/gift/lookup-nft`), {
+    method: "POST",
+    body: JSON.stringify({ nft_link: link }),
+  });
+  btn.disabled = false;
+
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Lookup failed.";
+    return;
+  }
+
+  const data = await res.json();
+
+  if (data.status === "not_ready") {
+    status.style.color = "#ffcf5c";
+    status.textContent = data.message;
+    return;
+  }
+
+  status.style.color = "#4ade80";
+  status.textContent = "✅ Found on Fragment!";
+
+  table.classList.remove("hidden");
+  table.innerHTML = `
+    ${data.owner ? `<div class="row"><span class="label">Owner</span><span class="value">${escapeHtml(data.owner)}</span></div>` : ""}
+    ${data.model ? `<div class="row"><span class="label">Model</span><span class="value">${escapeHtml(data.model)}</span></div>` : ""}
+    ${data.backdrop ? `<div class="row"><span class="label">Backdrop</span><span class="value">${escapeHtml(data.backdrop)}</span></div>` : ""}
+    ${data.symbol ? `<div class="row"><span class="label">Symbol</span><span class="value">${escapeHtml(data.symbol)}</span></div>` : ""}
+    ${data.quantity ? `<div class="row"><span class="label">Quantity</span><span class="value">${escapeHtml(data.quantity)} issued</span></div>` : ""}
+  `;
+
+  document.getElementById("f-name").value = data.name || data.slug;
+  document.getElementById("f-giftid").value = data.slug;
+
+  fetchedAnimationJson = data.animation_json;
+  const box = document.getElementById("preview-box");
+  box.classList.remove("hidden");
+  box.innerHTML = "";
+  if (previewAnim) previewAnim.destroy();
+  try {
+    const animData = JSON.parse(data.animation_json);
+    previewAnim = lottie.loadAnimation({ container: box, renderer: "svg", loop: true, autoplay: true, animationData: animData });
+  } catch {}
 }
 
 function closeGiftForm() {
@@ -423,6 +488,7 @@ document.getElementById("f-file").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   const box = document.getElementById("preview-box");
   if (!file) return;
+  fetchedAnimationJson = null; // manual file overrides any Fragment fetch
   box.classList.remove("hidden");
   box.innerHTML = "";
   if (previewAnim) previewAnim.destroy();
@@ -444,8 +510,8 @@ async function submitGift() {
   const status = document.getElementById("upload-status");
   const isEdit = editingGiftId !== null;
 
-  if (!name || !giftId || !playerPrice || !resellerPrice || (!isEdit && !file)) {
-    status.textContent = "Fill in all fields" + (isEdit ? "." : " and select a file.");
+  if (!name || !giftId || !playerPrice || !resellerPrice || (!isEdit && !file && !fetchedAnimationJson)) {
+    status.textContent = "Fill in all fields and provide an animation (upload a file or fetch from Fragment).";
     return;
   }
 
@@ -458,7 +524,11 @@ async function submitGift() {
   form.append("player_price", playerPrice);
   form.append("reseller_price", resellerPrice);
   if (!isEdit) form.append("gift_id", giftId);
-  if (file) form.append("animation", file);
+  if (fetchedAnimationJson) {
+    form.append("animation_json", fetchedAnimationJson);
+  } else if (file) {
+    form.append("animation", file);
+  }
 
   const url = isEdit ? `${API_BASE}/api/admin/gift/${editingGiftId}` : `${API_BASE}/api/admin/gift`;
   const res = await fetch(withAuth(url), { method: isEdit ? "PATCH" : "POST", body: form });
