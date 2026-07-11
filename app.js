@@ -35,6 +35,9 @@ async function authenticate() {
     document.getElementById("nav-gifts").classList.remove("hidden");
     document.getElementById("nav-users").classList.remove("hidden");
   }
+  if (currentUser.role !== "owner") {
+    document.getElementById("nft-pricing-btn").classList.add("hidden");
+  }
 
   await loadGifts();
   document.getElementById("loading").classList.add("hidden");
@@ -51,18 +54,167 @@ function showError(msg) {
 // TAB NAVIGATION
 // ══════════════════════════════════════════════════════════════
 function switchTab(tab) {
-  ["shop", "orders", "gifts", "users"].forEach((t) => {
+  ["shop", "orders", "convert", "gifts", "users"].forEach((t) => {
     document.getElementById(`tab-${t}`).classList.toggle("hidden", t !== tab);
   });
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
 
-  const titles = { shop: "Gifts Shop", orders: "My Orders", gifts: "Manage Gifts", users: "Manage Users" };
+  const titles = { shop: "Gifts Shop", orders: "My Orders", convert: "NFT to Sticker", gifts: "Manage Gifts", users: "Manage Users" };
   document.getElementById("page-title").textContent = titles[tab];
 
   if (tab === "orders") loadOrders();
   if (tab === "gifts") loadAdminGifts();
   if (tab === "users") loadUsers();
   tg.HapticFeedback?.impactOccurred("light");
+}
+
+// ══════════════════════════════════════════════════════════════
+// NFT → STICKER CONVERTER (customer-facing)
+// ══════════════════════════════════════════════════════════════
+let convertAnim = null;
+let convertSlug = null;
+let convertOrderId = null;
+
+async function previewConvert() {
+  const link = document.getElementById("cv-nft-link").value.trim();
+  const status = document.getElementById("cv-status");
+  const result = document.getElementById("cv-result");
+  const btn = document.getElementById("cv-fetch-btn");
+
+  if (!link) { status.style.color = "#ff6b6b"; status.textContent = "Paste an NFT link first."; return; }
+
+  status.style.color = "#8b8b9a";
+  status.textContent = "Loading preview…";
+  result.classList.add("hidden");
+  btn.disabled = true;
+
+  const res = await fetch(withAuth(`${API_BASE}/api/nft/preview`), {
+    method: "POST",
+    body: JSON.stringify({ nft_link: link }),
+  });
+  btn.disabled = false;
+
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not load preview.";
+    return;
+  }
+
+  const data = await res.json();
+  if (data.status === "not_ready") {
+    status.style.color = "#ffcf5c";
+    status.textContent = data.message;
+    return;
+  }
+
+  status.textContent = "";
+  convertSlug = data.slug;
+  convertOrderId = null;
+
+  document.getElementById("cv-name").textContent = data.name || data.slug;
+  document.getElementById("cv-price").textContent = data.price > 0 ? `${data.price} ⭐` : "Preview only (staff account)";
+  document.getElementById("cv-buy-btn").classList.toggle("hidden", data.price <= 0);
+
+  const table = document.getElementById("cv-preview-table");
+  table.innerHTML = `
+    ${data.model ? `<div class="row"><span class="label">Model</span><span class="value">${escapeHtml(data.model)}</span></div>` : ""}
+    ${data.backdrop ? `<div class="row"><span class="label">Backdrop</span><span class="value">${escapeHtml(data.backdrop)}</span></div>` : ""}
+    ${data.symbol ? `<div class="row"><span class="label">Symbol</span><span class="value">${escapeHtml(data.symbol)}</span></div>` : ""}
+  `;
+
+  const box = document.getElementById("cv-anim");
+  box.innerHTML = "";
+  if (convertAnim) convertAnim.destroy();
+  try {
+    const animData = JSON.parse(data.animation_json);
+    convertAnim = lottie.loadAnimation({ container: box, renderer: "svg", loop: true, autoplay: true, animationData: animData });
+  } catch {}
+
+  result.classList.remove("hidden");
+}
+
+async function buyConvert() {
+  const status = document.getElementById("cv-status");
+  const link = document.getElementById("cv-nft-link").value.trim();
+  status.style.color = "#5b8cff";
+  status.textContent = "Creating order…";
+
+  const startRes = await fetch(withAuth(`${API_BASE}/api/nft/convert/start`), {
+    method: "POST",
+    body: JSON.stringify({ nft_link: link }),
+  });
+  if (!startRes.ok) {
+    const e = await startRes.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not start order.";
+    return;
+  }
+  const startData = await startRes.json();
+  convertOrderId = startData.order_id;
+
+  status.textContent = "Opening payment…";
+  const payRes = await fetch(withAuth(`${API_BASE}/api/nft/convert/${convertOrderId}/pay`), { method: "POST" });
+  if (!payRes.ok) {
+    const e = await payRes.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not start payment.";
+    return;
+  }
+  const payData = await payRes.json();
+
+  tg.openInvoice(payData.invoice_link, (paymentStatus) => {
+    if (paymentStatus === "paid") {
+      status.style.color = "#4ade80";
+      status.textContent = "✅ Paid! Check your chat with the bot for your sticker.";
+      tg.HapticFeedback?.notificationOccurred("success");
+    } else if (paymentStatus === "cancelled") {
+      status.style.color = "#ff6b6b";
+      status.textContent = "Payment cancelled.";
+    } else if (paymentStatus === "failed") {
+      status.style.color = "#ff6b6b";
+      status.textContent = "Payment failed. Try again.";
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// OWNER — STICKER CONVERSION PRICING
+// ══════════════════════════════════════════════════════════════
+async function openNftPricingModal() {
+  const res = await fetch(withAuth(`${API_BASE}/api/admin/nft-settings`));
+  if (res.ok) {
+    const d = await res.json();
+    document.getElementById("np-user-price").value = d.user_price;
+    document.getElementById("np-reseller-price").value = d.reseller_price;
+  }
+  document.getElementById("np-status").textContent = "";
+  document.getElementById("nft-pricing-modal").classList.remove("hidden");
+}
+
+function closeNftPricingModal() { document.getElementById("nft-pricing-modal").classList.add("hidden"); }
+
+async function saveNftPricing() {
+  const status = document.getElementById("np-status");
+  const userPrice = document.getElementById("np-user-price").value;
+  const resellerPrice = document.getElementById("np-reseller-price").value;
+  if (userPrice === "" || resellerPrice === "") { status.textContent = "Fill in both prices."; return; }
+
+  status.style.color = "#8b8b9a";
+  status.textContent = "Saving…";
+  const res = await fetch(withAuth(`${API_BASE}/api/admin/nft-settings`), {
+    method: "POST",
+    body: JSON.stringify({ user_price: Number(userPrice), reseller_price: Number(resellerPrice) }),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Failed.";
+    return;
+  }
+  status.style.color = "#4ade80";
+  status.textContent = "✅ Saved!";
+  setTimeout(closeNftPricingModal, 600);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -428,7 +580,7 @@ async function lookupNft() {
   if (!link) { status.style.color = "#ff6b6b"; status.textContent = "Paste an NFT link first."; return; }
 
   status.style.color = "#8b8b9a";
-  status.textContent = "Fetching from Fragment…";
+  status.textContent = "Fetching gift preview…";
   table.classList.add("hidden");
   btn.disabled = true;
 
@@ -454,7 +606,7 @@ async function lookupNft() {
   }
 
   status.style.color = "#4ade80";
-  status.textContent = "✅ Found on Fragment!";
+  status.textContent = "✅ Preview loaded!";
 
   table.classList.remove("hidden");
   table.innerHTML = `
@@ -511,7 +663,7 @@ async function submitGift() {
   const isEdit = editingGiftId !== null;
 
   if (!name || !giftId || !playerPrice || !resellerPrice || (!isEdit && !file && !fetchedAnimationJson)) {
-    status.textContent = "Fill in all fields and provide an animation (upload a file or fetch from Fragment).";
+    status.textContent = "Fill in all fields and provide an animation (upload a file or fetch by NFT link).";
     return;
   }
 

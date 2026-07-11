@@ -6,7 +6,7 @@
 <title>Gifts Shop</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -32,6 +32,23 @@
       <div id="gift-grid" class="grid"></div>
     </section>
 
+    <!-- ── NFT TO STICKER TAB (everyone) ──────────────────── -->
+    <section id="tab-convert" class="tab-content hidden">
+      <div class="nft-fetch-box">
+        <input id="cv-nft-link" placeholder="Paste NFT link (t.me/nft/Name-123)">
+        <button class="btn-primary" style="flex-shrink:0;" onclick="previewConvert()" id="cv-fetch-btn">Preview</button>
+      </div>
+      <p id="cv-status" class="hint-text"></p>
+
+      <div id="cv-result" class="hidden">
+        <div id="cv-anim" class="viewer-anim"></div>
+        <h2 id="cv-name" class="viewer-title"></h2>
+        <div id="cv-preview-table" class="nft-preview-table"></div>
+        <p id="cv-price" class="viewer-price"></p>
+        <button class="btn-primary btn-block" id="cv-buy-btn" onclick="buyConvert()">🎟️ Convert to Sticker</button>
+      </div>
+    </section>
+
     <!-- ── MY ORDERS TAB (everyone) ───────────────────────── -->
     <section id="tab-orders" class="tab-content hidden">
       <div id="orders-list" class="list"></div>
@@ -39,6 +56,7 @@
 
     <!-- ── MANAGE GIFTS TAB (owner/admin) ────────────────── -->
     <section id="tab-gifts" class="tab-content hidden">
+      <button class="btn-add-floating" id="nft-pricing-btn" onclick="openNftPricingModal()" style="background:#2a2a35;color:#9fd3ff;">⚙️ Sticker Conversion Pricing</button>
       <button class="btn-add-floating" onclick="openGiftForm()">＋ Add New Gift</button>
       <div id="admin-gift-list" class="list"></div>
     </section>
@@ -57,6 +75,9 @@
       </button>
       <button class="nav-btn" data-tab="orders" onclick="switchTab('orders')">
         <span>📦</span><small>Orders</small>
+      </button>
+      <button class="nav-btn" data-tab="convert" onclick="switchTab('convert')">
+        <span>🎟️</span><small>Convert</small>
       </button>
       <button class="nav-btn hidden" data-tab="gifts" id="nav-gifts" onclick="switchTab('gifts')">
         <span>🎁</span><small>Gifts</small>
@@ -123,6 +144,21 @@
     </div>
   </div>
 
+  <!-- NFT conversion pricing modal (owner only) -->
+  <div id="nft-pricing-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Sticker Conversion Pricing</h2>
+      <p class="modal-subtext">Flat price charged to convert any NFT link into a sticker.</p>
+      <input id="np-user-price" type="number" placeholder="User price (Stars)">
+      <input id="np-reseller-price" type="number" placeholder="Reseller price (Stars)">
+      <div class="modal-actions">
+        <button onclick="closeNftPricingModal()" class="btn-secondary">Cancel</button>
+        <button onclick="saveNftPricing()" class="btn-primary">Save</button>
+      </div>
+      <p id="np-status"></p>
+    </div>
+  </div>
+
   <!-- Gift detail / buy modal -->
   <div id="viewer-modal" class="modal hidden" onclick="closeViewer()">
     <div class="modal-card" onclick="event.stopPropagation()">
@@ -150,6 +186,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
