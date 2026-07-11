@@ -40,8 +40,20 @@ async function authenticate() {
   }
 
   await loadGifts();
+  loadLogo();
   document.getElementById("loading").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
+}
+
+function loadLogo() {
+  const box = document.getElementById("shop-logo");
+  try {
+    lottie.loadAnimation({
+      container: box, renderer: "svg", loop: true, autoplay: true, path: "Logo.json",
+    }).addEventListener("data_failed", () => box.remove());
+  } catch {
+    box.remove();
+  }
 }
 
 function showError(msg) {
@@ -138,23 +150,12 @@ async function buyConvert() {
   const status = document.getElementById("cv-status");
   const link = document.getElementById("cv-nft-link").value.trim();
   status.style.color = "#5b8cff";
-  status.textContent = "Creating order…";
+  status.textContent = "Opening payment…";
 
-  const startRes = await fetch(withAuth(`${API_BASE}/api/nft/convert/start`), {
+  const payRes = await fetch(withAuth(`${API_BASE}/api/nft/convert/pay`), {
     method: "POST",
     body: JSON.stringify({ nft_link: link }),
   });
-  if (!startRes.ok) {
-    const e = await startRes.json().catch(() => ({}));
-    status.style.color = "#ff6b6b";
-    status.textContent = e.detail || "Could not start order.";
-    return;
-  }
-  const startData = await startRes.json();
-  convertOrderId = startData.order_id;
-
-  status.textContent = "Opening payment…";
-  const payRes = await fetch(withAuth(`${API_BASE}/api/nft/convert/${convertOrderId}/pay`), { method: "POST" });
   if (!payRes.ok) {
     const e = await payRes.json().catch(() => ({}));
     status.style.color = "#ff6b6b";
@@ -425,7 +426,12 @@ async function loadOrders() {
   renderOrders(data.orders);
 }
 
+let orderAnimInstances = [];
+
 function renderOrders(orders) {
+  orderAnimInstances.forEach((a) => a.destroy());
+  orderAnimInstances = [];
+
   const list = document.getElementById("orders-list");
   list.innerHTML = "";
 
@@ -452,7 +458,7 @@ function renderOrders(orders) {
 
     row.innerHTML = `
       <div class="order-top">
-        <div class="thumb">${o.gift_emoji || "🎁"}</div>
+        <div class="thumb" id="order-thumb-${o.id}">${o.animation_url ? "" : (o.gift_emoji || "🎁")}</div>
         <div class="name">${escapeHtml(o.gift_name)}</div>
         <div class="price">${o.price} ⭐</div>
       </div>
@@ -463,6 +469,14 @@ function renderOrders(orders) {
       ${claimHtml}
     `;
     list.appendChild(row);
+
+    if (o.animation_url) {
+      const anim = lottie.loadAnimation({
+        container: document.getElementById(`order-thumb-${o.id}`),
+        renderer: "svg", loop: true, autoplay: true, path: o.animation_url,
+      });
+      orderAnimInstances.push(anim);
+    }
   });
 }
 
