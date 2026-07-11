@@ -6,7 +6,7 @@
 <title>Gifts Shop</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 
@@ -34,6 +34,10 @@
     <section id="tab-shop" class="tab-content">
       <div id="gift-grid" class="grid"></div>
     </section>
+
+    <button id="cart-fab" class="cart-fab hidden" onclick="openCart()">
+      <span id="cart-fab-count">0</span> selected · <span id="cart-fab-price">0</span> ⭐
+    </button>
 
     <!-- ── NFT TO STICKER TAB (everyone) ──────────────────── -->
     <section id="tab-convert" class="tab-content hidden">
@@ -162,33 +166,40 @@
     </div>
   </div>
 
-  <!-- Gift detail / buy modal -->
-  <div id="viewer-modal" class="modal hidden" onclick="closeViewer()">
+  <!-- Cart modal -->
+  <div id="cart-modal" class="modal hidden">
     <div class="modal-card" onclick="event.stopPropagation()">
-      <div id="viewer-anim" class="viewer-anim"></div>
-      <h2 id="viewer-name" class="viewer-title"></h2>
-      <p id="viewer-price" class="viewer-price"></p>
+      <h2 id="cart-title">Your Cart</h2>
 
-      <div id="buy-step-choice">
-        <button class="btn-primary btn-block" onclick="startBuy(false)">🎁 Buy for Myself</button>
-        <button class="btn-secondary btn-block" onclick="startBuy(true)">🔗 Buy for Someone Else</button>
+      <div id="cart-step-recipient">
+        <p class="modal-subtext">Who are these gifts for?</p>
+        <button class="btn-primary btn-block" onclick="setCartRecipient(false)">🎁 Myself</button>
+        <button class="btn-secondary btn-block" onclick="setCartRecipient(true)">🔗 Someone Else</button>
       </div>
 
-      <div id="buy-step-comment" class="hidden">
-        <div id="comment-preview" class="comment-preview hidden"></div>
-        <button class="btn-secondary btn-block" id="comment-btn" onclick="requestComment()">💬 Add Comment (via bot chat)</button>
-        <p class="hint-text">Comments support premium emoji &amp; formatting — you'll type it in your chat with the bot, then come back here.</p>
-        <div class="modal-actions">
-          <button class="btn-secondary" onclick="backToChoice()">Back</button>
-          <button class="btn-primary" onclick="goToPay()">Continue to Pay</button>
+      <div id="cart-step-review" class="hidden">
+        <div id="cart-lines" class="cart-lines"></div>
+        <div class="cart-footer">
+          <span id="cart-total-items">0 gifts</span>
+          <span id="cart-total-price">0 ⭐</span>
         </div>
+        <button class="btn-primary btn-block" onclick="proceedToCheckout()">Continue</button>
       </div>
 
-      <p id="buy-status" class="buy-status"></p>
-      <button class="btn-secondary btn-block" onclick="closeViewer()">Close</button>
+      <div id="cart-step-checkout" class="hidden">
+        <div id="checkout-lines" class="cart-lines"></div>
+        <div class="cart-footer">
+          <span id="checkout-total-items">0 gifts</span>
+          <span id="checkout-total-price">0 ⭐</span>
+        </div>
+        <button class="btn-primary btn-block" onclick="payCart()">Pay</button>
+      </div>
+
+      <p id="cart-status" class="buy-status"></p>
+      <button class="btn-secondary btn-block" onclick="closeCart()">Close</button>
     </div>
   </div>
 
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>

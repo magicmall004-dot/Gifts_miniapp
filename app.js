@@ -221,10 +221,13 @@ async function saveNftPricing() {
 // ══════════════════════════════════════════════════════════════
 // SHOP CATALOG
 // ══════════════════════════════════════════════════════════════
+let lastGifts = [];
+
 async function loadGifts() {
   const res = await fetch(withAuth(`${API_BASE}/api/gifts`));
   if (!res.ok) { showError("Could not load gifts."); return; }
-  renderGifts((await res.json()).gifts);
+  lastGifts = (await res.json()).gifts;
+  renderGifts(lastGifts);
 }
 
 function renderGifts(gifts) {
@@ -242,7 +245,12 @@ function renderGifts(gifts) {
   gifts.forEach((gift) => {
     const card = document.createElement("div");
     card.className = "gift-card";
-    card.onclick = () => openViewer(gift);
+    if (cart[gift.id]) card.classList.add("selected");
+
+    const badge = document.createElement("div");
+    badge.className = "check-badge";
+    badge.textContent = "✓";
+    card.appendChild(badge);
 
     const animBox = document.createElement("div");
     animBox.className = "gift-anim";
@@ -262,149 +270,248 @@ function renderGifts(gifts) {
 
     grid.appendChild(card);
 
+    let anim = null;
     if (gift.animation_url) {
-      const anim = lottie.loadAnimation({ container: animBox, renderer: "svg", loop: true, autoplay: true, path: gift.animation_url });
+      // Paused at frame 0 by default — many simultaneous looping Lottie
+      // animations in a grid is what actually causes lag on weaker
+      // devices. Playing once on selection keeps things smooth while
+      // still giving a satisfying preview.
+      anim = lottie.loadAnimation({
+        container: animBox, renderer: "svg", loop: false, autoplay: false, path: gift.animation_url,
+      });
       animInstances.push(anim);
     }
+
+    card.onclick = () => {
+      if (cart[gift.id]) {
+        delete cart[gift.id];
+        card.classList.remove("selected");
+      } else {
+        cart[gift.id] = { gift, quantity: 1, comment_text: "", comment_html: "", item_id: null };
+        card.classList.add("selected");
+        if (anim) anim.goToAndPlay(0, true);
+      }
+      tg.HapticFeedback?.selectionChanged();
+      updateCartFab();
+    };
   });
 }
 
 // ══════════════════════════════════════════════════════════════
-// GIFT DETAIL / BUY FLOW
+// CART
 // ══════════════════════════════════════════════════════════════
-let viewerAnim = null;
-let currentGift = null;
-let buyForOther = false;
-let currentOrderId = null;
-let commentPollTimer = null;
+let cart = {}; // { [gift_db_id]: {gift, quantity, comment_text, comment_html, item_id} }
+let cartForOther = null;
+let cartOrderId = null;
 
-function openViewer(gift) {
-  currentGift = gift;
-  currentOrderId = null;
-  const box = document.getElementById("viewer-anim");
-  box.innerHTML = "";
-  document.getElementById("viewer-name").textContent = `${gift.emoji || "🎁"} ${gift.name}`;
-  document.getElementById("viewer-price").textContent = gift.price > 0 ? `${gift.price} ⭐` : "";
-  document.getElementById("buy-status").textContent = "";
-  document.getElementById("comment-preview").classList.add("hidden");
-  document.getElementById("comment-btn").textContent = "💬 Add Comment (via bot chat)";
-  backToChoice();
-
-  const canBuy = currentUser.role !== "owner" && currentUser.role !== "admin" && gift.price > 0;
-  document.getElementById("buy-step-choice").classList.toggle("hidden", !canBuy);
-  if (!canBuy) {
-    document.getElementById("buy-status").style.color = "#8b8b9a";
-    document.getElementById("buy-status").textContent = "Staff accounts can preview but not purchase.";
-  }
-
-  document.getElementById("viewer-modal").classList.remove("hidden");
-  if (gift.animation_url) {
-    viewerAnim = lottie.loadAnimation({ container: box, renderer: "svg", loop: true, autoplay: true, path: gift.animation_url });
-  }
-  tg.HapticFeedback?.impactOccurred("light");
+function cartCount() {
+  return Object.values(cart).reduce((sum, l) => sum + l.quantity, 0);
+}
+function cartTotal() {
+  return Object.values(cart).reduce((sum, l) => sum + l.gift.price * l.quantity, 0);
 }
 
-function closeViewer() {
-  document.getElementById("viewer-modal").classList.add("hidden");
-  if (viewerAnim) { viewerAnim.destroy(); viewerAnim = null; }
-  if (commentPollTimer) { clearInterval(commentPollTimer); commentPollTimer = null; }
-  currentGift = null;
-  currentOrderId = null;
+function updateCartFab() {
+  const fab = document.getElementById("cart-fab");
+  const count = cartCount();
+  if (count === 0) { fab.classList.add("hidden"); return; }
+  fab.classList.remove("hidden");
+  document.getElementById("cart-fab-count").textContent = count;
+  document.getElementById("cart-fab-price").textContent = cartTotal();
 }
 
-async function startBuy(forOther) {
-  buyForOther = forOther;
-  const status = document.getElementById("buy-status");
-  status.style.color = "#ff6b6b";
-  status.textContent = "Creating order…";
+function openCart() {
+  cartForOther = null;
+  document.getElementById("cart-status").textContent = "";
+  document.getElementById("cart-step-checkout").classList.add("hidden");
+  document.getElementById("cart-step-review").classList.add("hidden");
+  document.getElementById("cart-step-recipient").classList.remove("hidden");
+  document.getElementById("cart-modal").classList.remove("hidden");
+}
 
-  const res = await fetch(withAuth(`${API_BASE}/api/buy/start`), {
+function closeCart() {
+  document.getElementById("cart-modal").classList.add("hidden");
+}
+
+function setCartRecipient(forOther) {
+  cartForOther = forOther;
+  document.getElementById("cart-step-recipient").classList.add("hidden");
+  document.getElementById("cart-step-review").classList.remove("hidden");
+  renderCartReview();
+}
+
+function renderCartReview() {
+  const container = document.getElementById("cart-lines");
+  container.innerHTML = "";
+
+  Object.values(cart).forEach((line) => {
+    const div = document.createElement("div");
+    div.className = "cart-line";
+    div.innerHTML = `
+      <div class="cart-line-top">
+        <div class="cart-line-thumb" id="cart-thumb-${line.gift.id}"></div>
+        <div class="cart-line-name">${line.gift.emoji || "🎁"} ${escapeHtml(line.gift.name)}</div>
+        <div class="cart-line-subtotal">${line.gift.price * line.quantity} ⭐</div>
+      </div>
+      <div class="qty-control">
+        <button class="qty-btn" onclick="changeQty(${line.gift.id}, -1)">−</button>
+        <span class="qty-value">${line.quantity}</span>
+        <button class="qty-btn" onclick="changeQty(${line.gift.id}, 1)">+</button>
+      </div>
+      <div class="cart-line-actions">
+        <button class="pill-btn danger" onclick="removeFromCart(${line.gift.id})">Remove</button>
+      </div>
+    `;
+    container.appendChild(div);
+
+    if (line.gift.animation_url) {
+      lottie.loadAnimation({
+        container: document.getElementById(`cart-thumb-${line.gift.id}`),
+        renderer: "svg", loop: true, autoplay: true, path: line.gift.animation_url,
+      });
+    }
+  });
+
+  document.getElementById("cart-total-items").textContent = `${cartCount()} gifts`;
+  document.getElementById("cart-total-price").textContent = `${cartTotal()} ⭐`;
+}
+
+function changeQty(giftId, delta) {
+  const line = cart[giftId];
+  if (!line) return;
+  line.quantity = Math.max(1, line.quantity + delta);
+  renderCartReview();
+  updateCartFab();
+}
+
+function removeFromCart(giftId) {
+  delete cart[giftId];
+  renderCartReview();
+  updateCartFab();
+  renderGifts(lastGifts); // refresh shop grid selection state
+  if (Object.keys(cart).length === 0) closeCart();
+}
+
+async function proceedToCheckout() {
+  const status = document.getElementById("cart-status");
+  status.style.color = "#8b8b9a";
+  status.textContent = "Creating your order…";
+
+  const items = Object.values(cart).map((l) => ({ gift_db_id: l.gift.id, quantity: l.quantity }));
+  const res = await fetch(withAuth(`${API_BASE}/api/cart/start`), {
     method: "POST",
-    body: JSON.stringify({ gift_db_id: currentGift.id, for_other: forOther }),
+    body: JSON.stringify({ items, for_other: cartForOther }),
   });
 
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
     status.textContent = e.detail || "Could not create order.";
     return;
   }
 
   const data = await res.json();
-  currentOrderId = data.order_id;
+  cartOrderId = data.cart_order_id;
+  data.items.forEach((it) => { if (cart[it.gift_db_id]) cart[it.gift_db_id].item_id = it.item_id; });
+
   status.textContent = "";
-
-  document.getElementById("buy-step-choice").classList.add("hidden");
-  document.getElementById("buy-step-comment").classList.remove("hidden");
+  document.getElementById("cart-step-review").classList.add("hidden");
+  document.getElementById("cart-step-checkout").classList.remove("hidden");
+  renderCheckoutLines();
 }
 
-function backToChoice() {
-  document.getElementById("buy-step-comment").classList.add("hidden");
-  document.getElementById("buy-step-choice").classList.remove("hidden");
-  if (commentPollTimer) { clearInterval(commentPollTimer); commentPollTimer = null; }
-}
+function renderCheckoutLines() {
+  const container = document.getElementById("checkout-lines");
+  container.innerHTML = "";
 
-async function requestComment() {
-  if (!currentOrderId) return;
-  const status = document.getElementById("buy-status");
-  status.style.color = "#5b8cff";
-  status.textContent = "Check your bot chat — type your comment there…";
-  document.getElementById("comment-btn").textContent = "💬 Waiting for your message…";
+  Object.values(cart).forEach((line) => {
+    const div = document.createElement("div");
+    div.className = "cart-line";
+    div.innerHTML = `
+      <div class="cart-line-top">
+        <div class="cart-line-thumb" id="checkout-thumb-${line.gift.id}"></div>
+        <div class="cart-line-name">${line.gift.emoji || "🎁"} ${escapeHtml(line.gift.name)} ×${line.quantity}</div>
+        <div class="cart-line-subtotal">${line.gift.price * line.quantity} ⭐</div>
+      </div>
+      ${line.comment_text ? `<div class="cart-line-comment">💬 ${escapeHtml(line.comment_text)}</div>` : ""}
+      <div class="cart-line-actions">
+        <button class="pill-btn neutral" onclick="requestCartComment(${line.gift.id})">
+          ${line.comment_text ? "✏️ Edit Comment" : "💬 Add Comment"}
+        </button>
+      </div>
+    `;
+    container.appendChild(div);
 
-  const res = await fetch(withAuth(`${API_BASE}/api/order/${currentOrderId}/request-comment`), {
-    method: "POST",
+    if (line.gift.animation_url) {
+      lottie.loadAnimation({
+        container: document.getElementById(`checkout-thumb-${line.gift.id}`),
+        renderer: "svg", loop: true, autoplay: true, path: line.gift.animation_url,
+      });
+    }
   });
+
+  document.getElementById("checkout-total-items").textContent = `${cartCount()} gifts`;
+  document.getElementById("checkout-total-price").textContent = `${cartTotal()} ⭐`;
+}
+
+let cartCommentPollTimer = null;
+
+async function requestCartComment(giftId) {
+  const line = cart[giftId];
+  if (!line || !line.item_id) return;
+  const status = document.getElementById("cart-status");
+  status.style.color = "#5b8cff";
+  status.textContent = `Check your bot chat — type your comment for ${line.gift.name}…`;
+
+  const res = await fetch(withAuth(`${API_BASE}/api/cart/item/${line.item_id}/request-comment`), { method: "POST" });
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
     status.style.color = "#ff6b6b";
     status.textContent = e.detail || "Could not send comment request.";
     return;
   }
-
   tg.HapticFeedback?.impactOccurred("light");
 
-  if (commentPollTimer) clearInterval(commentPollTimer);
-  commentPollTimer = setInterval(async () => {
-    const r = await fetch(withAuth(`${API_BASE}/api/order/${currentOrderId}`));
+  if (cartCommentPollTimer) clearInterval(cartCommentPollTimer);
+  cartCommentPollTimer = setInterval(async () => {
+    const r = await fetch(withAuth(`${API_BASE}/api/cart/item/${line.item_id}`));
     if (!r.ok) return;
     const d = await r.json();
     if (d.comment_text) {
-      clearInterval(commentPollTimer);
-      commentPollTimer = null;
+      clearInterval(cartCommentPollTimer);
+      cartCommentPollTimer = null;
+      line.comment_text = d.comment_text;
       status.style.color = "#4ade80";
       status.textContent = "✅ Comment received!";
-      document.getElementById("comment-btn").textContent = "✏️ Edit Comment (via bot chat)";
-      const preview = document.getElementById("comment-preview");
-      preview.textContent = d.comment_text;
-      preview.classList.remove("hidden");
+      renderCheckoutLines();
     }
   }, 2500);
 }
 
-async function goToPay() {
-  if (!currentOrderId) return;
-  const status = document.getElementById("buy-status");
+async function payCart() {
+  const status = document.getElementById("cart-status");
   status.style.color = "#5b8cff";
   status.textContent = "Opening payment…";
 
-  const res = await fetch(withAuth(`${API_BASE}/api/order/${currentOrderId}/pay`), {
-    method: "POST",
-  });
+  const res = await fetch(withAuth(`${API_BASE}/api/cart/${cartOrderId}/pay`), { method: "POST" });
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
     status.style.color = "#ff6b6b";
     status.textContent = e.detail || "Could not start payment.";
     return;
   }
-
   const data = await res.json();
+
   tg.openInvoice(data.invoice_link, (paymentStatus) => {
     if (paymentStatus === "paid") {
       status.style.color = "#4ade80";
-      status.textContent = buyForOther
+      status.textContent = cartForOther
         ? "✅ Paid! Check My Orders for the claim link."
         : "✅ Paid! Check your Telegram profile gifts.";
       tg.HapticFeedback?.notificationOccurred("success");
-      setTimeout(() => { closeViewer(); loadGifts(); }, 1800);
+      cart = {};
+      updateCartFab();
+      setTimeout(() => { closeCart(); loadGifts(); }, 1800);
     } else if (paymentStatus === "cancelled") {
       status.style.color = "#ff6b6b";
       status.textContent = "Payment cancelled.";
