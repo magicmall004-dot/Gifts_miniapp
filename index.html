@@ -6,7 +6,7 @@
 <title>Gifts Shop</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 
@@ -56,6 +56,12 @@
       </div>
     </section>
 
+    <!-- ── GIVEAWAYS TAB (everyone) ───────────────────────── -->
+    <section id="tab-giveaways" class="tab-content hidden">
+      <button id="gw-create-btn" class="btn-add-floating hidden" onclick="openGwCreate()">🎉 Create Giveaway</button>
+      <div id="gw-list" class="list"></div>
+    </section>
+
     <!-- ── MY ORDERS TAB (everyone) ───────────────────────── -->
     <section id="tab-orders" class="tab-content hidden">
       <div id="orders-list" class="list"></div>
@@ -85,6 +91,9 @@
       </button>
       <button class="nav-btn" data-tab="convert" onclick="switchTab('convert')">
         <span>🎟️</span><small>Convert</small>
+      </button>
+      <button class="nav-btn" data-tab="giveaways" onclick="switchTab('giveaways')">
+        <span>🎉</span><small>Giveaways</small>
       </button>
       <button class="nav-btn hidden" data-tab="gifts" id="nav-gifts" onclick="switchTab('gifts')">
         <span>🎁</span><small>Gifts</small>
@@ -200,6 +209,52 @@
     </div>
   </div>
 
-  <script src="app.js?v=7"></script>
+  <!-- Giveaway detail modal -->
+  <div id="gw-detail-modal" class="modal hidden" onclick="closeGwDetail()">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <h2 id="gwd-title">🎉 Giveaway</h2>
+      <p id="gwd-channel" class="modal-subtext"></p>
+      <div id="gwd-gifts" class="nft-preview-table"></div>
+      <p id="gwd-timer" class="viewer-price"></p>
+      <p id="gwd-participants" class="hint-text"></p>
+      <div id="gwd-winners" class="hidden"></div>
+      <button class="btn-primary btn-block" id="gwd-enter-btn" onclick="enterGiveaway()">🎁 Enter Giveaway</button>
+      <p id="gwd-status" class="buy-status"></p>
+      <button class="btn-secondary btn-block" onclick="closeGwDetail()">Close</button>
+    </div>
+  </div>
+
+  <!-- Giveaway create modal -->
+  <div id="gw-create-modal" class="modal hidden">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <h2>Create Giveaway</h2>
+
+      <div id="gwc-step-channel">
+        <p class="modal-subtext">Choose a channel or group</p>
+        <div id="gwc-channel-list" class="role-options"></div>
+      </div>
+
+      <div id="gwc-step-gifts" class="hidden">
+        <p class="modal-subtext">Tap gifts to add to the prize pool</p>
+        <div id="gwc-gift-grid" class="grid" style="padding:0;"></div>
+        <div id="gwc-cart-lines" class="cart-lines"></div>
+        <input id="gwc-duration" type="number" placeholder="Duration (hours)" value="24">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;">
+          <input type="checkbox" id="gwc-require-join" style="width:auto;"> Require channel join to enter
+        </label>
+        <button class="pill-btn neutral" id="gwc-comment-btn" onclick="gwRequestComment()">💬 Add Comment (optional)</button>
+        <div class="cart-footer">
+          <span id="gwc-total-prizes">0 prizes</span>
+          <span id="gwc-total-price">0 ⭐</span>
+        </div>
+        <button class="btn-primary btn-block" onclick="gwCheckout()">Create Giveaway</button>
+      </div>
+
+      <p id="gwc-status" class="buy-status"></p>
+      <button class="btn-secondary btn-block" onclick="closeGwCreate()">Close</button>
+    </div>
+  </div>
+
+  <script src="app.js?v=8"></script>
 </body>
 </html>

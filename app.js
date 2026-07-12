@@ -41,8 +41,10 @@ async function authenticate() {
 
   await loadGifts();
   loadLogo();
+  checkGwCreateAccess();
   document.getElementById("loading").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
+  checkGwDeepLink();
 }
 
 function loadLogo() {
@@ -66,15 +68,16 @@ function showError(msg) {
 // TAB NAVIGATION
 // ══════════════════════════════════════════════════════════════
 function switchTab(tab) {
-  ["shop", "orders", "convert", "gifts", "users"].forEach((t) => {
+  ["shop", "orders", "convert", "giveaways", "gifts", "users"].forEach((t) => {
     document.getElementById(`tab-${t}`).classList.toggle("hidden", t !== tab);
   });
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
 
-  const titles = { shop: "Gifts Shop", orders: "My Orders", convert: "NFT to Sticker", gifts: "Manage Gifts", users: "Manage Users" };
+  const titles = { shop: "Gifts Shop", orders: "My Orders", convert: "NFT to Sticker", giveaways: "Giveaways", gifts: "Manage Gifts", users: "Manage Users" };
   document.getElementById("page-title").textContent = titles[tab];
 
   if (tab === "orders") loadOrders();
+  if (tab === "giveaways") loadGiveaways();
   if (tab === "gifts") loadAdminGifts();
   if (tab === "users") loadUsers();
   tg.HapticFeedback?.impactOccurred("light");
@@ -993,6 +996,377 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ══════════════════════════════════════════════════════════════
+// GIVEAWAYS
+// ══════════════════════════════════════════════════════════════
+let gwAnimInstances = [];
+let gwCountdownTimers = {};
+let currentGwId = null;
+let gwCart = {}; // { [gift_db_id]: {gift, quantity} }
+let gwChannel = null;
+let gwCreatedId = null;
+let gwCommentPollTimer = null;
+
+async function checkGwCreateAccess() {
+  const res = await fetch(withAuth(`${API_BASE}/api/giveaways/my-channels`));
+  if (!res.ok) return;
+  const data = await res.json();
+  if (data.channels.length > 0) {
+    document.getElementById("gw-create-btn").classList.remove("hidden");
+  }
+}
+
+async function loadGiveaways() {
+  const res = await fetch(withAuth(`${API_BASE}/api/giveaways`));
+  const list = document.getElementById("gw-list");
+  Object.values(gwCountdownTimers).forEach(clearInterval);
+  gwCountdownTimers = {};
+  if (!res.ok) { list.innerHTML = `<p class="empty-state">Could not load giveaways.</p>`; return; }
+  const data = await res.json();
+  renderGiveaways(data.giveaways);
+}
+
+function renderGiveaways(giveaways) {
+  gwAnimInstances.forEach((a) => a.destroy());
+  gwAnimInstances = [];
+  const list = document.getElementById("gw-list");
+  list.innerHTML = "";
+
+  if (!giveaways.length) {
+    list.innerHTML = `<p class="empty-state">🎉 No giveaways running right now.</p>`;
+    return;
+  }
+
+  giveaways.forEach((gw) => {
+    const row = document.createElement("div");
+    row.className = "list-row";
+    row.style.cursor = "pointer";
+    row.onclick = () => openGwDetail(gw.id);
+
+    const giftIcons = gw.gifts.slice(0, 3).map((g) => g.emoji || "🎁").join(" ");
+    const statusLabel = gw.status === "ended" ? "Ended" : "Active";
+
+    row.innerHTML = `
+      <div class="thumb">${giftIcons}</div>
+      <div class="info">
+        <div class="title">${escapeHtml(gw.channel_title)}</div>
+        <div class="subtitle">
+          🎁 ${gw.total_prizes} prizes · 👥 ${gw.participants_count}
+          <span class="status-pill ${gw.status === "ended" ? "claimed" : "paid"}">${statusLabel}</span>
+        </div>
+      </div>
+      <div class="actions"><span id="gw-countdown-${gw.id}" style="font-size:11px;color:#ffcf5c;font-weight:700;"></span></div>
+    `;
+    list.appendChild(row);
+
+    if (gw.status === "active") {
+      const el = document.getElementById(`gw-countdown-${gw.id}`);
+      let remaining = gw.remaining_secs;
+      const update = () => {
+        remaining = Math.max(0, remaining - 1);
+        el.textContent = fmtDuration(remaining);
+        if (remaining <= 0) { clearInterval(gwCountdownTimers[gw.id]); loadGiveaways(); }
+      };
+      update();
+      gwCountdownTimers[gw.id] = setInterval(update, 1000);
+    } else {
+      const el = document.getElementById(`gw-countdown-${gw.id}`);
+      if (el) el.textContent = "";
+    }
+  });
+}
+
+function fmtDuration(secs) {
+  if (secs <= 0) return "Ended";
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+let gwDetailTimer = null;
+
+async function openGwDetail(gid) {
+  currentGwId = gid;
+  const res = await fetch(withAuth(`${API_BASE}/api/giveaways/${gid}`));
+  if (!res.ok) return;
+  const gw = await res.json();
+  renderGwDetail(gw);
+  document.getElementById("gw-detail-modal").classList.remove("hidden");
+}
+
+function renderGwDetail(gw) {
+  document.getElementById("gwd-title").textContent = gw.status === "ended" ? "🏆 Giveaway Results" : "🎉 Giveaway";
+  document.getElementById("gwd-channel").textContent = gw.channel_title;
+  document.getElementById("gwd-status").textContent = "";
+
+  const giftsBox = document.getElementById("gwd-gifts");
+  giftsBox.innerHTML = gw.gifts.map((g) => `
+    <div class="row"><span class="label">${g.emoji || "🎁"} ${escapeHtml(g.name)}</span><span class="value">×${g.quantity}</span></div>
+  `).join("");
+
+  document.getElementById("gwd-participants").textContent =
+    `👥 ${gw.participants_count} participants` + (gw.require_join ? ` · Must join ${gw.channel_username ? "@" + gw.channel_username : "the channel"}` : "");
+
+  const winnersBox = document.getElementById("gwd-winners");
+  const enterBtn = document.getElementById("gwd-enter-btn");
+  const timerEl = document.getElementById("gwd-timer");
+
+  if (gwDetailTimer) clearInterval(gwDetailTimer);
+
+  if (gw.status === "ended") {
+    timerEl.textContent = "Ended";
+    enterBtn.classList.add("hidden");
+    winnersBox.classList.remove("hidden");
+    winnersBox.innerHTML = gw.winners.length
+      ? `<div class="group-header">Winners</div>` + gw.winners.map((w) =>
+          `<div class="cart-line"><div class="cart-line-top"><div class="cart-line-name">${w.username ? "@" + escapeHtml(w.username) : escapeHtml(w.first_name || "User")}</div><div class="cart-line-subtotal">${w.gift_emoji || "🎁"} ${escapeHtml(w.gift_name || "")}</div></div></div>`
+        ).join("")
+      : `<p class="empty-state">No participants — no winners this time.</p>`;
+  } else {
+    winnersBox.classList.add("hidden");
+    enterBtn.classList.remove("hidden");
+    enterBtn.textContent = gw.user_entered ? "✅ Already Entered" : "🎁 Enter Giveaway";
+    enterBtn.disabled = gw.user_entered;
+    let remaining = gw.remaining_secs;
+    const update = () => {
+      timerEl.textContent = `⏱ ${fmtDuration(remaining)} left`;
+      remaining = Math.max(0, remaining - 1);
+      if (remaining <= 0) clearInterval(gwDetailTimer);
+    };
+    update();
+    gwDetailTimer = setInterval(update, 1000);
+  }
+}
+
+function closeGwDetail() {
+  document.getElementById("gw-detail-modal").classList.add("hidden");
+  if (gwDetailTimer) { clearInterval(gwDetailTimer); gwDetailTimer = null; }
+}
+
+async function enterGiveaway() {
+  const status = document.getElementById("gwd-status");
+  status.style.color = "#5b8cff";
+  status.textContent = "Entering…";
+  const res = await fetch(withAuth(`${API_BASE}/api/giveaways/${currentGwId}/enter`), { method: "POST" });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not enter.";
+    return;
+  }
+  status.style.color = "#4ade80";
+  status.textContent = "🎉 You're entered! Good luck!";
+  tg.HapticFeedback?.notificationOccurred("success");
+  document.getElementById("gwd-enter-btn").textContent = "✅ Already Entered";
+  document.getElementById("gwd-enter-btn").disabled = true;
+}
+
+// ── Create flow ──────────────────────────────────────────────
+async function openGwCreate() {
+  gwCart = {};
+  gwChannel = null;
+  gwCreatedId = null;
+  document.getElementById("gwc-status").textContent = "";
+  document.getElementById("gwc-step-gifts").classList.add("hidden");
+  document.getElementById("gwc-step-channel").classList.remove("hidden");
+
+  const res = await fetch(withAuth(`${API_BASE}/api/giveaways/my-channels`));
+  const data = await res.json();
+  const list = document.getElementById("gwc-channel-list");
+  list.innerHTML = "";
+  data.channels.forEach((ch) => {
+    const btn = document.createElement("button");
+    btn.className = "role-option-btn";
+    btn.textContent = `${ch.type === "channel" ? "📢" : "👥"} ${ch.title}`;
+    btn.onclick = () => selectGwChannel(ch);
+    list.appendChild(btn);
+  });
+
+  document.getElementById("gw-create-modal").classList.remove("hidden");
+}
+
+function closeGwCreate() {
+  document.getElementById("gw-create-modal").classList.add("hidden");
+  if (gwCommentPollTimer) { clearInterval(gwCommentPollTimer); gwCommentPollTimer = null; }
+}
+
+function selectGwChannel(ch) {
+  gwChannel = ch;
+  document.getElementById("gwc-step-channel").classList.add("hidden");
+  document.getElementById("gwc-step-gifts").classList.remove("hidden");
+  renderGwGiftGrid();
+}
+
+function renderGwGiftGrid() {
+  const grid = document.getElementById("gwc-gift-grid");
+  grid.innerHTML = "";
+  lastGifts.forEach((gift) => {
+    const card = document.createElement("div");
+    card.className = "gift-card";
+    if (gwCart[gift.id]) card.classList.add("selected");
+    card.innerHTML = `<div class="check-badge">✓</div><div class="gift-anim" id="gwc-anim-${gift.id}"></div><div class="gift-name">${gift.emoji || "🎁"} ${escapeHtml(gift.name)}</div>`;
+    card.onclick = () => {
+      if (gwCart[gift.id]) delete gwCart[gift.id];
+      else gwCart[gift.id] = { gift, quantity: 1 };
+      renderGwGiftGrid();
+      renderGwCartLines();
+    };
+    grid.appendChild(card);
+    if (gift.animation_url) {
+      lottie.loadAnimation({ container: document.getElementById(`gwc-anim-${gift.id}`), renderer: "svg", loop: false, autoplay: gwCart[gift.id] ? true : false, path: gift.animation_url });
+    }
+  });
+}
+
+function renderGwCartLines() {
+  const container = document.getElementById("gwc-cart-lines");
+  container.innerHTML = "";
+  let totalQty = 0, totalPrice = 0;
+  Object.values(gwCart).forEach((line) => {
+    totalQty += line.quantity;
+    totalPrice += (line.gift.price || 0) * line.quantity;
+    const div = document.createElement("div");
+    div.className = "cart-line";
+    div.innerHTML = `
+      <div class="cart-line-top">
+        <div class="cart-line-name">${line.gift.emoji || "🎁"} ${escapeHtml(line.gift.name)}</div>
+      </div>
+      <div class="qty-control">
+        <button class="qty-btn" onclick="changeGwQty(${line.gift.id}, -1)">−</button>
+        <span class="qty-value">${line.quantity}</span>
+        <button class="qty-btn" onclick="changeGwQty(${line.gift.id}, 1)">+</button>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+  document.getElementById("gwc-total-prizes").textContent = `${totalQty} prizes`;
+  document.getElementById("gwc-total-price").textContent = `${totalPrice} ⭐`;
+}
+
+function changeGwQty(giftId, delta) {
+  const line = gwCart[giftId];
+  if (!line) return;
+  line.quantity = Math.max(1, line.quantity + delta);
+  renderGwCartLines();
+}
+
+async function gwRequestComment() {
+  const status = document.getElementById("gwc-status");
+  if (!gwCreatedId) {
+    // Create the giveaway (pending) first so we have an id to attach the comment to
+    const created = await createGwPending();
+    if (!created) return;
+  }
+  status.style.color = "#5b8cff";
+  status.textContent = "Check your bot chat — type your comment…";
+  document.getElementById("gwc-comment-btn").disabled = true;
+
+  const res = await fetch(withAuth(`${API_BASE}/api/giveaways/${gwCreatedId}/request-comment`), { method: "POST" });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not send request.";
+    document.getElementById("gwc-comment-btn").disabled = false;
+    return;
+  }
+  if (gwCommentPollTimer) clearInterval(gwCommentPollTimer);
+  gwCommentPollTimer = setInterval(async () => {
+    const r = await fetch(withAuth(`${API_BASE}/api/giveaways/${gwCreatedId}`));
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.comment_html) {
+      clearInterval(gwCommentPollTimer);
+      gwCommentPollTimer = null;
+      status.style.color = "#4ade80";
+      status.textContent = "✅ Comment saved!";
+      document.getElementById("gwc-comment-btn").textContent = "✏️ Edit Comment";
+      document.getElementById("gwc-comment-btn").disabled = false;
+    }
+  }, 2500);
+}
+
+async function createGwPending() {
+  const status = document.getElementById("gwc-status");
+  const items = Object.values(gwCart).map((l) => ({ gift_db_id: l.gift.id, quantity: l.quantity }));
+  if (!items.length) { status.style.color = "#ff6b6b"; status.textContent = "Select at least one gift."; return false; }
+
+  const durationHours = parseFloat(document.getElementById("gwc-duration").value) || 24;
+  const requireJoin = document.getElementById("gwc-require-join").checked;
+
+  const res = await fetch(withAuth(`${API_BASE}/api/giveaways/create`), {
+    method: "POST",
+    body: JSON.stringify({
+      channel_id: gwChannel.chat_id, items,
+      duration_seconds: Math.round(durationHours * 3600),
+      require_join: requireJoin,
+    }),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not create giveaway.";
+    return false;
+  }
+  const data = await res.json();
+  gwCreatedId = data.giveaway_id;
+  return true;
+}
+
+async function gwCheckout() {
+  const status = document.getElementById("gwc-status");
+  if (!gwCreatedId) {
+    const created = await createGwPending();
+    if (!created) return;
+  }
+
+  status.style.color = "#5b8cff";
+  status.textContent = "Posting giveaway…";
+
+  const res = await fetch(withAuth(`${API_BASE}/api/giveaways/${gwCreatedId}/checkout`), { method: "POST" });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not post giveaway.";
+    return;
+  }
+  const data = await res.json();
+
+  if (data.free) {
+    status.style.color = "#4ade80";
+    status.textContent = "✅ Giveaway posted to your channel!";
+    tg.HapticFeedback?.notificationOccurred("success");
+    setTimeout(() => { closeGwCreate(); loadGiveaways(); }, 1500);
+    return;
+  }
+
+  tg.openInvoice(data.invoice_link, (paymentStatus) => {
+    if (paymentStatus === "paid") {
+      status.style.color = "#4ade80";
+      status.textContent = "✅ Paid! Giveaway posted to your channel.";
+      tg.HapticFeedback?.notificationOccurred("success");
+      setTimeout(() => { closeGwCreate(); loadGiveaways(); }, 1500);
+    } else if (paymentStatus === "cancelled") {
+      status.style.color = "#ff6b6b";
+      status.textContent = "Payment cancelled.";
+    } else if (paymentStatus === "failed") {
+      status.style.color = "#ff6b6b";
+      status.textContent = "Payment failed. Try again.";
+    }
+  });
+}
+
+// If launched from a channel's "Enter Giveaway" button (startapp=gw_<id>),
+// jump straight to that giveaway's detail screen.
+function checkGwDeepLink() {
+  const startParam = tg.initDataUnsafe?.start_param || "";
+  if (startParam.startsWith("gw_")) {
+    const gid = startParam.slice(3);
+    switchTab("giveaways");
+    setTimeout(() => openGwDetail(gid), 300);
+  }
 }
 
 authenticate();
