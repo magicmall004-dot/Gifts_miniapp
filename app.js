@@ -1198,6 +1198,7 @@ function selectGwChannel(ch) {
   document.getElementById("gwc-step-channel").classList.add("hidden");
   document.getElementById("gwc-step-gifts").classList.remove("hidden");
   renderGwGiftGrid();
+  updateGwDurationPreview();
 }
 
 function renderGwGiftGrid() {
@@ -1288,19 +1289,61 @@ async function gwRequestComment() {
   }, 2500);
 }
 
+function parseGwDuration(text) {
+  text = (text || "").trim().toLowerCase();
+  if (!text) return null;
+  if (/^\d+$/.test(text)) return parseInt(text, 10) * 60; // bare number = minutes
+  const dMatch = text.match(/(\d+)\s*d/);
+  const hMatch = text.match(/(\d+)\s*h/);
+  const mMatch = text.match(/(\d+)\s*m(?!s)/);
+  const d = dMatch ? parseInt(dMatch[1], 10) : 0;
+  const h = hMatch ? parseInt(hMatch[1], 10) : 0;
+  const m = mMatch ? parseInt(mMatch[1], 10) : 0;
+  const total = d * 86400 + h * 3600 + m * 60;
+  return total > 0 ? total : null;
+}
+
+function setGwDuration(preset) {
+  document.getElementById("gwc-duration").value = preset;
+  updateGwDurationPreview();
+}
+
+function updateGwDurationPreview() {
+  const text = document.getElementById("gwc-duration").value;
+  const secs = parseGwDuration(text);
+  const preview = document.getElementById("gwc-duration-preview");
+  if (!secs) { preview.style.color = "#ff6b6b"; preview.textContent = "Invalid duration format"; return; }
+  if (secs < 60) { preview.style.color = "#ff6b6b"; preview.textContent = "Minimum 1 minute"; return; }
+  if (secs > 7 * 86400) { preview.style.color = "#ff6b6b"; preview.textContent = "Maximum 7 days"; return; }
+  const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600), m = Math.floor((secs % 3600) / 60);
+  const parts = [];
+  if (d) parts.push(`${d}d`);
+  if (h) parts.push(`${h}h`);
+  if (m) parts.push(`${m}m`);
+  preview.style.color = "#8b8b9a";
+  preview.textContent = `Runs for ${parts.join(" ")}`;
+}
+
+document.getElementById("gwc-duration")?.addEventListener("input", updateGwDurationPreview);
+
 async function createGwPending() {
   const status = document.getElementById("gwc-status");
   const items = Object.values(gwCart).map((l) => ({ gift_db_id: l.gift.id, quantity: l.quantity }));
   if (!items.length) { status.style.color = "#ff6b6b"; status.textContent = "Select at least one gift."; return false; }
 
-  const durationHours = parseFloat(document.getElementById("gwc-duration").value) || 24;
+  const durationSeconds = parseGwDuration(document.getElementById("gwc-duration").value);
+  if (!durationSeconds || durationSeconds < 60 || durationSeconds > 7 * 86400) {
+    status.style.color = "#ff6b6b";
+    status.textContent = "Enter a valid duration (1 minute – 7 days), e.g. 30m, 2h, 1h30m, 3d.";
+    return false;
+  }
   const requireJoin = document.getElementById("gwc-require-join").checked;
 
   const res = await fetch(withAuth(`${API_BASE}/api/giveaways/create`), {
     method: "POST",
     body: JSON.stringify({
       channel_id: gwChannel.chat_id, items,
-      duration_seconds: Math.round(durationHours * 3600),
+      duration_seconds: durationSeconds,
       require_join: requireJoin,
     }),
   });

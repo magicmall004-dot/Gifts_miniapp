@@ -6,7 +6,7 @@
 <title>Gifts Shop</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 
@@ -238,7 +238,17 @@
         <p class="modal-subtext">Tap gifts to add to the prize pool</p>
         <div id="gwc-gift-grid" class="grid" style="padding:0;"></div>
         <div id="gwc-cart-lines" class="cart-lines"></div>
-        <input id="gwc-duration" type="number" placeholder="Duration (hours)" value="24">
+        <div class="modal-subtext" style="margin-top:6px;">Duration</div>
+        <div class="duration-presets">
+          <button class="preset-chip" onclick="setGwDuration('5m')">5m</button>
+          <button class="preset-chip" onclick="setGwDuration('30m')">30m</button>
+          <button class="preset-chip" onclick="setGwDuration('1h')">1h</button>
+          <button class="preset-chip" onclick="setGwDuration('6h')">6h</button>
+          <button class="preset-chip" onclick="setGwDuration('24h')">24h</button>
+          <button class="preset-chip" onclick="setGwDuration('3d')">3d</button>
+        </div>
+        <input id="gwc-duration" placeholder="e.g. 2h30m, 45m, 3d (or custom)" value="24h">
+        <p id="gwc-duration-preview" class="hint-text"></p>
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;">
           <input type="checkbox" id="gwc-require-join" style="width:auto;"> Require channel join to enter
         </label>
@@ -255,6 +265,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

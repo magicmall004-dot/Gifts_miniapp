@@ -448,6 +448,18 @@ body {
 }
 .cart-footer span:last-child { color: var(--gold); }
 
+.duration-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.preset-chip {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.preset-chip:active { background: var(--accent-soft); }
+
 .comment-preview {
   background: var(--bg-card);
   border-radius: 10px;
