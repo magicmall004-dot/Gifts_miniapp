@@ -1432,18 +1432,37 @@ let ccTargetId = null;
 let ccEntities = []; // [{type:"custom_emoji", offset, length, custom_emoji_id}]
 let ccOnSaved = null; // callback(comment_text, comment_html) after successful save
 
+let ccLastRange = null; // remembers cursor position in the contenteditable editor
+
 function openCommentComposer(targetType, targetId, existingText, onSaved) {
   ccTargetType = targetType;
   ccTargetId = targetId;
   ccEntities = [];
   ccOnSaved = onSaved;
-  document.getElementById("cc-textarea").value = existingText || "";
+  ccLastRange = null;
+  const editor = document.getElementById("cc-editor");
+  editor.innerHTML = "";
+  if (existingText) editor.appendChild(document.createTextNode(existingText));
   document.getElementById("cc-pack-link").value = "";
   document.getElementById("cc-pack-status").textContent = "";
   document.getElementById("cc-emoji-grid").classList.add("hidden");
   document.getElementById("cc-emoji-grid").innerHTML = "";
   document.getElementById("cc-status").textContent = "";
   document.getElementById("comment-composer-modal").classList.remove("hidden");
+
+  editor.addEventListener("keyup", saveCcSelection);
+  editor.addEventListener("mouseup", saveCcSelection);
+  editor.addEventListener("touchend", saveCcSelection);
+}
+
+function saveCcSelection() {
+  const sel = window.getSelection();
+  if (sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0);
+    if (document.getElementById("cc-editor").contains(range.commonAncestorContainer)) {
+      ccLastRange = range.cloneRange();
+    }
+  }
 }
 
 function closeCommentComposer() {
@@ -1456,10 +1475,10 @@ async function fetchEmojiPack(forceRefresh = false) {
   const grid = document.getElementById("cc-emoji-grid");
   if (!link) { status.style.color = "#ff6b6b"; status.textContent = "Paste a pack link first."; return; }
 
-  const packName = link.replace(/^https?:\/\//, "").replace(/^t\.me\/addemoji\//, "").trim();
+  const cacheKey = link.toLowerCase(); // exact input text — guarantees save/lookup always match
 
   if (!forceRefresh) {
-    const cached = await idbGet("packs", packName);
+    const cached = await idbGet("packs", cacheKey);
     if (cached) {
       status.style.color = "#4ade80";
       status.textContent = `✅ ${cached.title} (${cached.emojis.length} emojis) · from device cache`;
@@ -1486,7 +1505,7 @@ async function fetchEmojiPack(forceRefresh = false) {
     return;
   }
   const data = await res.json();
-  idbSet("packs", { pack_name: data.pack_name, title: data.title, emojis: data.emojis, cached_at: Date.now() });
+  idbSet("packs", { pack_name: cacheKey, title: data.title, emojis: data.emojis, cached_at: Date.now() });
 
   status.style.color = "#4ade80";
   status.textContent = `✅ ${data.title} (${data.emojis.length} emojis)`;
@@ -1532,30 +1551,72 @@ function renderEmojiBatch(emojis, startIdx, batchSize) {
   }
 }
 
-function insertCustomEmoji(e) {
-  const ta = document.getElementById("cc-textarea");
-  const start = ta.selectionStart ?? ta.value.length;
-  const end = ta.selectionEnd ?? ta.value.length;
-  const placeholder = e.placeholder || "😀";
+async function insertCustomEmoji(e) {
+  const editor = document.getElementById("cc-editor");
+  const url = await getCachedThumb(e.preview_file_id); // reuses the same cache as the picker grid — no extra fetch cost
+  if (!url) return;
 
-  // Shift any existing entities that come after the insertion point
-  const insertLength = placeholder.length; // JS string length ≈ UTF-16 code units, matches Telegram's offset unit
-  ccEntities.forEach((ent) => {
-    if (ent.offset >= start) ent.offset += insertLength;
-  });
+  const img = document.createElement("img");
+  img.className = "inline-emoji";
+  img.src = url;
+  img.dataset.customEmojiId = e.custom_emoji_id;
+  img.dataset.placeholder = e.placeholder || "😀";
+  img.alt = e.placeholder || "😀";
 
-  ta.value = ta.value.slice(0, start) + placeholder + ta.value.slice(end);
-  ccEntities.push({ type: "custom_emoji", offset: start, length: insertLength, custom_emoji_id: e.custom_emoji_id });
+  editor.focus();
+  let range = ccLastRange;
+  if (!range || !editor.contains(range.commonAncestorContainer)) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false); // fall back to end of editor
+  }
+  range.deleteContents();
+  range.insertNode(img);
+  range.setStartAfter(img);
+  range.setEndAfter(img);
 
-  const newPos = start + insertLength;
-  ta.focus();
-  ta.setSelectionRange(newPos, newPos);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  ccLastRange = range.cloneRange();
+
   tg.HapticFeedback?.impactOccurred("light");
+}
+
+function serializeCcEditor() {
+  const editor = document.getElementById("cc-editor");
+  let text = "";
+  const entities = [];
+
+  function walk(node) {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        text += child.textContent;
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        if (child.classList && child.classList.contains("inline-emoji")) {
+          const placeholder = child.dataset.placeholder || "😀";
+          entities.push({
+            type: "custom_emoji",
+            offset: text.length,
+            length: placeholder.length,
+            custom_emoji_id: child.dataset.customEmojiId,
+          });
+          text += placeholder;
+        } else if (child.tagName === "BR") {
+          text += "\n";
+        } else {
+          walk(child); // divs/spans some browsers insert on Enter — recurse into them
+        }
+      }
+    });
+  }
+  walk(editor);
+  return { text, entities };
 }
 
 async function saveComposedComment() {
   const status = document.getElementById("cc-status");
-  const text = document.getElementById("cc-textarea").value;
+  const { text, entities } = serializeCcEditor();
 
   status.style.color = "#8b8b9a";
   status.textContent = "Saving…";
@@ -1564,7 +1625,7 @@ async function saveComposedComment() {
     method: "POST",
     body: JSON.stringify({
       target_type: ccTargetType, target_id: ccTargetId,
-      comment_text: text, comment_entities: ccEntities,
+      comment_text: text, comment_entities: entities,
     }),
   });
   if (!res.ok) {

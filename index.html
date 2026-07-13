@@ -6,7 +6,7 @@
 <title>Gifts Shop</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 
@@ -269,7 +269,7 @@
   <div id="comment-composer-modal" class="modal hidden">
     <div class="modal-card" onclick="event.stopPropagation()">
       <h2>Add Comment</h2>
-      <textarea id="cc-textarea" rows="3" placeholder="Type your comment…" style="background:var(--bg-card);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:12px;font-size:14px;font-family:inherit;resize:none;"></textarea>
+      <div id="cc-editor" contenteditable="true" class="comment-editor" data-placeholder="Type your comment…"></div>
 
       <div class="nft-fetch-box">
         <input id="cc-pack-link" placeholder="Paste emoji pack link (t.me/addemoji/...)">
@@ -286,6 +286,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>

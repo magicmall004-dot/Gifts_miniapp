@@ -448,6 +448,32 @@ body {
 }
 .cart-footer span:last-child { color: var(--gold); }
 
+.comment-editor {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  min-height: 64px;
+  max-height: 140px;
+  overflow-y: auto;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.comment-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-dim);
+}
+.comment-editor .inline-emoji {
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  display: inline-block;
+  margin: 0 1px;
+}
+
 .emoji-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
