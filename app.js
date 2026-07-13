@@ -1061,16 +1061,24 @@ function renderGiveaways(giveaways) {
     `;
     list.appendChild(row);
 
-    if (gw.status === "active") {
+    if (gw.status === "active" && gw.remaining_secs > 0) {
       const el = document.getElementById(`gw-countdown-${gw.id}`);
       let remaining = gw.remaining_secs;
       const update = () => {
         remaining = Math.max(0, remaining - 1);
         el.textContent = fmtDuration(remaining);
-        if (remaining <= 0) { clearInterval(gwCountdownTimers[gw.id]); loadGiveaways(); }
+        if (remaining <= 0) {
+          clearInterval(gwCountdownTimers[gw.id]);
+          setTimeout(loadGiveaways, 1500); // async, not synchronous — no recursion risk
+        }
       };
       update();
       gwCountdownTimers[gw.id] = setInterval(update, 1000);
+    } else if (gw.status === "active" && gw.remaining_secs <= 0) {
+      // Already expired but server hasn't finalized it yet — show a
+      // neutral state and refresh once, not in a loop.
+      const el = document.getElementById(`gw-countdown-${gw.id}`);
+      if (el) el.textContent = "Ending…";
     } else {
       const el = document.getElementById(`gw-countdown-${gw.id}`);
       if (el) el.textContent = "";
