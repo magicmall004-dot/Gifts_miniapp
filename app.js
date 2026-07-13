@@ -1371,6 +1371,60 @@ function checkGwDeepLink() {
 }
 
 // ══════════════════════════════════════════════════════════════
+// EMOJI PACK CACHE (IndexedDB — persists on-device, no re-fetching
+// the same pack every time, and thumbnails are cached as blobs so
+// reopening a pack costs zero network/server calls)
+// ══════════════════════════════════════════════════════════════
+let _idbPromise = null;
+
+function idbOpen() {
+  if (_idbPromise) return _idbPromise;
+  _idbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open("magicmall_emoji_cache", 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("packs")) db.createObjectStore("packs", { keyPath: "pack_name" });
+      if (!db.objectStoreNames.contains("thumbs")) db.createObjectStore("thumbs", { keyPath: "file_id" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return _idbPromise;
+}
+
+async function idbGet(store, key) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(store, "readonly").objectStore(store).get(key);
+      tx.onsuccess = () => resolve(tx.result || null);
+      tx.onerror = () => resolve(null);
+    });
+  } catch { return null; }
+}
+
+async function idbSet(store, value) {
+  try {
+    const db = await idbOpen();
+    await new Promise((resolve) => {
+      const tx = db.transaction(store, "readwrite").objectStore(store).put(value);
+      tx.onsuccess = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {}
+}
+
+async function getCachedThumb(fileId) {
+  const cached = await idbGet("thumbs", fileId);
+  if (cached && cached.blob) return URL.createObjectURL(cached.blob);
+  const res = await fetch(`${API_BASE}/api/emoji-pack/file/${fileId}`);
+  if (!res.ok) return "";
+  const blob = await res.blob();
+  idbSet("thumbs", { file_id: fileId, blob });
+  return URL.createObjectURL(blob);
+}
+
+// ══════════════════════════════════════════════════════════════
 // COMMENT COMPOSER (with custom emoji picker — works for non-Premium users)
 // ══════════════════════════════════════════════════════════════
 let ccTargetType = null;
@@ -1396,14 +1450,29 @@ function closeCommentComposer() {
   document.getElementById("comment-composer-modal").classList.add("hidden");
 }
 
-async function fetchEmojiPack() {
+async function fetchEmojiPack(forceRefresh = false) {
   const link = document.getElementById("cc-pack-link").value.trim();
   const status = document.getElementById("cc-pack-status");
   const grid = document.getElementById("cc-emoji-grid");
   if (!link) { status.style.color = "#ff6b6b"; status.textContent = "Paste a pack link first."; return; }
 
+  const packName = link.replace(/^https?:\/\//, "").replace(/^t\.me\/addemoji\//, "").trim();
+
+  if (!forceRefresh) {
+    const cached = await idbGet("packs", packName);
+    if (cached) {
+      status.style.color = "#4ade80";
+      status.textContent = `✅ ${cached.title} (${cached.emojis.length} emojis) · from device cache`;
+      grid.innerHTML = "";
+      grid.classList.remove("hidden");
+      renderEmojiBatch(cached.emojis, 0, 5);
+      addRefreshPackButton(status, () => fetchEmojiPack(true));
+      return;
+    }
+  }
+
   status.style.color = "#8b8b9a";
-  status.textContent = "Loading pack…";
+  status.textContent = forceRefresh ? "Refreshing pack…" : "Loading pack…";
   grid.classList.add("hidden");
 
   const res = await fetch(withAuth(`${API_BASE}/api/emoji-pack/lookup`), {
@@ -1417,12 +1486,24 @@ async function fetchEmojiPack() {
     return;
   }
   const data = await res.json();
+  idbSet("packs", { pack_name: data.pack_name, title: data.title, emojis: data.emojis, cached_at: Date.now() });
+
   status.style.color = "#4ade80";
   status.textContent = `✅ ${data.title} (${data.emojis.length} emojis)`;
+  addRefreshPackButton(status, () => fetchEmojiPack(true));
 
   grid.innerHTML = "";
   grid.classList.remove("hidden");
-  renderEmojiBatch(data.emojis, 0, 30);
+  renderEmojiBatch(data.emojis, 0, 5);
+}
+
+function addRefreshPackButton(status, onClick) {
+  const btn = document.createElement("button");
+  btn.className = "pill-btn neutral";
+  btn.style.marginLeft = "6px";
+  btn.textContent = "🔄 Refresh";
+  btn.onclick = onClick;
+  status.appendChild(btn);
 }
 
 function renderEmojiBatch(emojis, startIdx, batchSize) {
@@ -1434,7 +1515,7 @@ function renderEmojiBatch(emojis, startIdx, batchSize) {
     const img = document.createElement("img");
     img.loading = "lazy";
     img.onclick = () => insertCustomEmoji(e);
-    img.src = `${API_BASE}/api/emoji-pack/file/${e.preview_file_id}`;
+    getCachedThumb(e.preview_file_id).then((url) => { if (url) img.src = url; });
     grid.appendChild(img);
   }
 
