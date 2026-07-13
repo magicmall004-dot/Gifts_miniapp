@@ -457,38 +457,13 @@ function renderCheckoutLines() {
   document.getElementById("checkout-total-price").textContent = `${cartTotal()} ⭐`;
 }
 
-let cartCommentPollTimer = null;
-
-async function requestCartComment(giftId) {
+function requestCartComment(giftId) {
   const line = cart[giftId];
   if (!line || !line.item_id) return;
-  const status = document.getElementById("cart-status");
-  status.style.color = "#5b8cff";
-  status.textContent = `Check your bot chat — type your comment for ${line.gift.name}…`;
-
-  const res = await fetch(withAuth(`${API_BASE}/api/cart/item/${line.item_id}/request-comment`), { method: "POST" });
-  if (!res.ok) {
-    const e = await res.json().catch(() => ({}));
-    status.style.color = "#ff6b6b";
-    status.textContent = e.detail || "Could not send comment request.";
-    return;
-  }
-  tg.HapticFeedback?.impactOccurred("light");
-
-  if (cartCommentPollTimer) clearInterval(cartCommentPollTimer);
-  cartCommentPollTimer = setInterval(async () => {
-    const r = await fetch(withAuth(`${API_BASE}/api/cart/item/${line.item_id}`));
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d.comment_text) {
-      clearInterval(cartCommentPollTimer);
-      cartCommentPollTimer = null;
-      line.comment_text = d.comment_text;
-      status.style.color = "#4ade80";
-      status.textContent = "✅ Comment received!";
-      renderCheckoutLines();
-    }
-  }, 2500);
+  openCommentComposer("cart_item", line.item_id, line.comment_text, (text, html) => {
+    line.comment_text = text;
+    renderCheckoutLines();
+  });
 }
 
 async function payCart() {
@@ -1263,38 +1238,13 @@ function changeGwQty(giftId, delta) {
 }
 
 async function gwRequestComment() {
-  const status = document.getElementById("gwc-status");
   if (!gwCreatedId) {
-    // Create the giveaway (pending) first so we have an id to attach the comment to
     const created = await createGwPending();
     if (!created) return;
   }
-  status.style.color = "#5b8cff";
-  status.textContent = "Check your bot chat — type your comment…";
-  document.getElementById("gwc-comment-btn").disabled = true;
-
-  const res = await fetch(withAuth(`${API_BASE}/api/giveaways/${gwCreatedId}/request-comment`), { method: "POST" });
-  if (!res.ok) {
-    const e = await res.json().catch(() => ({}));
-    status.style.color = "#ff6b6b";
-    status.textContent = e.detail || "Could not send request.";
-    document.getElementById("gwc-comment-btn").disabled = false;
-    return;
-  }
-  if (gwCommentPollTimer) clearInterval(gwCommentPollTimer);
-  gwCommentPollTimer = setInterval(async () => {
-    const r = await fetch(withAuth(`${API_BASE}/api/giveaways/${gwCreatedId}`));
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d.comment_html) {
-      clearInterval(gwCommentPollTimer);
-      gwCommentPollTimer = null;
-      status.style.color = "#4ade80";
-      status.textContent = "✅ Comment saved!";
-      document.getElementById("gwc-comment-btn").textContent = "✏️ Edit Comment";
-      document.getElementById("gwc-comment-btn").disabled = false;
-    }
-  }, 2500);
+  openCommentComposer("giveaway", gwCreatedId, "", (text, html) => {
+    document.getElementById("gwc-comment-btn").textContent = "✏️ Edit Comment";
+  });
 }
 
 function parseGwDuration(text) {
@@ -1418,6 +1368,116 @@ function checkGwDeepLink() {
     switchTab("giveaways");
     setTimeout(() => openGwDetail(gid), 300);
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// COMMENT COMPOSER (with custom emoji picker — works for non-Premium users)
+// ══════════════════════════════════════════════════════════════
+let ccTargetType = null;
+let ccTargetId = null;
+let ccEntities = []; // [{type:"custom_emoji", offset, length, custom_emoji_id}]
+let ccOnSaved = null; // callback(comment_text, comment_html) after successful save
+
+function openCommentComposer(targetType, targetId, existingText, onSaved) {
+  ccTargetType = targetType;
+  ccTargetId = targetId;
+  ccEntities = [];
+  ccOnSaved = onSaved;
+  document.getElementById("cc-textarea").value = existingText || "";
+  document.getElementById("cc-pack-link").value = "";
+  document.getElementById("cc-pack-status").textContent = "";
+  document.getElementById("cc-emoji-grid").classList.add("hidden");
+  document.getElementById("cc-emoji-grid").innerHTML = "";
+  document.getElementById("cc-status").textContent = "";
+  document.getElementById("comment-composer-modal").classList.remove("hidden");
+}
+
+function closeCommentComposer() {
+  document.getElementById("comment-composer-modal").classList.add("hidden");
+}
+
+async function fetchEmojiPack() {
+  const link = document.getElementById("cc-pack-link").value.trim();
+  const status = document.getElementById("cc-pack-status");
+  const grid = document.getElementById("cc-emoji-grid");
+  if (!link) { status.style.color = "#ff6b6b"; status.textContent = "Paste a pack link first."; return; }
+
+  status.style.color = "#8b8b9a";
+  status.textContent = "Loading pack…";
+  grid.classList.add("hidden");
+
+  const res = await fetch(withAuth(`${API_BASE}/api/emoji-pack/lookup`), {
+    method: "POST",
+    body: JSON.stringify({ pack_link: link }),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not load pack.";
+    return;
+  }
+  const data = await res.json();
+  status.style.color = "#4ade80";
+  status.textContent = `✅ ${data.title} (${data.emojis.length} emojis)`;
+
+  grid.innerHTML = "";
+  grid.classList.remove("hidden");
+  data.emojis.forEach((e) => {
+    const img = document.createElement("img");
+    img.src = `${API_BASE}/api/emoji-pack/file/${e.preview_file_id}`;
+    img.loading = "lazy";
+    img.onclick = () => insertCustomEmoji(e);
+    grid.appendChild(img);
+  });
+}
+
+function insertCustomEmoji(e) {
+  const ta = document.getElementById("cc-textarea");
+  const start = ta.selectionStart ?? ta.value.length;
+  const end = ta.selectionEnd ?? ta.value.length;
+  const placeholder = e.placeholder || "😀";
+
+  // Shift any existing entities that come after the insertion point
+  const insertLength = placeholder.length; // JS string length ≈ UTF-16 code units, matches Telegram's offset unit
+  ccEntities.forEach((ent) => {
+    if (ent.offset >= start) ent.offset += insertLength;
+  });
+
+  ta.value = ta.value.slice(0, start) + placeholder + ta.value.slice(end);
+  ccEntities.push({ type: "custom_emoji", offset: start, length: insertLength, custom_emoji_id: e.custom_emoji_id });
+
+  const newPos = start + insertLength;
+  ta.focus();
+  ta.setSelectionRange(newPos, newPos);
+  tg.HapticFeedback?.impactOccurred("light");
+}
+
+async function saveComposedComment() {
+  const status = document.getElementById("cc-status");
+  const text = document.getElementById("cc-textarea").value;
+
+  status.style.color = "#8b8b9a";
+  status.textContent = "Saving…";
+
+  const res = await fetch(withAuth(`${API_BASE}/api/comment/set`), {
+    method: "POST",
+    body: JSON.stringify({
+      target_type: ccTargetType, target_id: ccTargetId,
+      comment_text: text, comment_entities: ccEntities,
+    }),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not save comment.";
+    return;
+  }
+  const data = await res.json();
+  status.style.color = "#4ade80";
+  status.textContent = "✅ Saved!";
+  tg.HapticFeedback?.notificationOccurred("success");
+  if (ccOnSaved) ccOnSaved(text, data.comment_html);
+  setTimeout(closeCommentComposer, 500);
 }
 
 authenticate();
