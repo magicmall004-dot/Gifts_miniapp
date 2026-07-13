@@ -1422,13 +1422,33 @@ async function fetchEmojiPack() {
 
   grid.innerHTML = "";
   grid.classList.remove("hidden");
-  data.emojis.forEach((e) => {
+  renderEmojiBatch(data.emojis, 0, 30);
+}
+
+function renderEmojiBatch(emojis, startIdx, batchSize) {
+  const grid = document.getElementById("cc-emoji-grid");
+  const end = Math.min(startIdx + batchSize, emojis.length);
+
+  for (let i = startIdx; i < end; i++) {
+    const e = emojis[i];
     const img = document.createElement("img");
-    img.src = `${API_BASE}/api/emoji-pack/file/${e.preview_file_id}`;
     img.loading = "lazy";
     img.onclick = () => insertCustomEmoji(e);
+    img.src = `${API_BASE}/api/emoji-pack/file/${e.preview_file_id}`;
     grid.appendChild(img);
-  });
+  }
+
+  if (end < emojis.length) {
+    const moreBtn = document.createElement("button");
+    moreBtn.className = "pill-btn neutral";
+    moreBtn.style.gridColumn = "1 / -1";
+    moreBtn.textContent = `Load ${Math.min(batchSize, emojis.length - end)} more…`;
+    moreBtn.onclick = () => {
+      moreBtn.remove();
+      renderEmojiBatch(emojis, end, batchSize);
+    };
+    grid.appendChild(moreBtn);
+  }
 }
 
 function insertCustomEmoji(e) {
