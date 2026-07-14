@@ -480,6 +480,20 @@ async function payCart() {
   }
   const data = await res.json();
 
+  if (data.free) {
+    status.style.color = "#4ade80";
+    if (data.delivered) {
+      status.textContent = "✅ Sent! Check your Telegram profile gifts.";
+    } else if (data.claim_link) {
+      status.textContent = "✅ Ready! Check My Orders for the claim link.";
+    }
+    tg.HapticFeedback?.notificationOccurred("success");
+    cart = {};
+    updateCartFab();
+    setTimeout(() => { closeCart(); loadGifts(); }, 1800);
+    return;
+  }
+
   tg.openInvoice(data.invoice_link, (paymentStatus) => {
     if (paymentStatus === "paid") {
       status.style.color = "#4ade80";
@@ -1380,11 +1394,12 @@ let _idbPromise = null;
 function idbOpen() {
   if (_idbPromise) return _idbPromise;
   _idbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open("magicmall_emoji_cache", 1);
+    const req = indexedDB.open("magicmall_emoji_cache", 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains("packs")) db.createObjectStore("packs", { keyPath: "pack_name" });
       if (!db.objectStoreNames.contains("thumbs")) db.createObjectStore("thumbs", { keyPath: "file_id" });
+      if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath: "key" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -1453,6 +1468,17 @@ function openCommentComposer(targetType, targetId, existingText, onSaved) {
   editor.addEventListener("keyup", saveCcSelection);
   editor.addEventListener("mouseup", saveCcSelection);
   editor.addEventListener("touchend", saveCcSelection);
+
+  // Auto-load the last pack you used — no need to re-paste the link
+  // every time. If the on-device cache happened to be cleared by the
+  // platform, this just triggers one silent re-fetch instead of
+  // requiring you to remember/re-paste the link yourself.
+  idbGet("meta", "last_pack_link").then((row) => {
+    if (row && row.value) {
+      document.getElementById("cc-pack-link").value = row.value;
+      fetchEmojiPack();
+    }
+  });
 }
 
 function saveCcSelection() {
@@ -1486,6 +1512,7 @@ async function fetchEmojiPack(forceRefresh = false) {
       grid.classList.remove("hidden");
       renderEmojiBatch(cached.emojis, 0, 5);
       addRefreshPackButton(status, () => fetchEmojiPack(true));
+      idbSet("meta", { key: "last_pack_link", value: link });
       return;
     }
   }
@@ -1506,6 +1533,7 @@ async function fetchEmojiPack(forceRefresh = false) {
   }
   const data = await res.json();
   idbSet("packs", { pack_name: cacheKey, title: data.title, emojis: data.emojis, cached_at: Date.now() });
+  idbSet("meta", { key: "last_pack_link", value: link });
 
   status.style.color = "#4ade80";
   status.textContent = `✅ ${data.title} (${data.emojis.length} emojis)`;
