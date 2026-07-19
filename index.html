@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 
@@ -273,18 +273,27 @@
   <div id="comment-composer-modal" class="modal hidden">
     <div class="modal-card" onclick="event.stopPropagation()">
       <h2>Add Comment</h2>
-      <div id="cc-editor" contenteditable="true" class="comment-editor" data-placeholder="Type your comment…"></div>
 
-      <div class="nft-fetch-box">
-        <input id="cc-pack-link" placeholder="Paste emoji pack link (t.me/addemoji/...)">
-        <button class="btn-primary" style="flex-shrink:0;" onclick="fetchEmojiPack()">Fetch</button>
+      <div id="cc-premium-option" class="hidden">
+        <button class="btn-primary btn-block" onclick="usePremiumCommentFlow()">⚡ Type in Bot Chat (fastest, Premium emoji supported)</button>
+        <p class="hint-text">You have Telegram Premium — typing there lets you insert premium emoji directly from your keyboard.</p>
+        <div style="text-align:center;margin:4px 0 8px;color:var(--text-faint);font-size:11px;font-weight:700;">— or compose here instead —</div>
       </div>
-      <p id="cc-pack-status" class="hint-text"></p>
-      <div id="cc-emoji-grid" class="emoji-grid hidden"></div>
+
+      <div id="cc-manual-composer">
+        <div id="cc-editor" contenteditable="true" class="comment-editor" data-placeholder="Type your comment…"></div>
+
+        <div class="nft-fetch-box">
+          <input id="cc-pack-link" placeholder="Paste emoji pack link (t.me/addemoji/...)">
+          <button class="btn-primary" style="flex-shrink:0;" onclick="fetchEmojiPack()">Fetch</button>
+        </div>
+        <p id="cc-pack-status" class="hint-text"></p>
+        <div id="cc-emoji-grid" class="emoji-grid hidden"></div>
+      </div>
 
       <div class="modal-actions">
         <button onclick="closeCommentComposer()" class="btn-secondary">Cancel</button>
-        <button onclick="saveComposedComment()" class="btn-primary">Save Comment</button>
+        <button onclick="saveComposedComment()" class="btn-primary" id="cc-save-btn">Save Comment</button>
       </div>
       <p id="cc-status" class="buy-status"></p>
     </div>
@@ -292,6 +301,6 @@
 
   <div id="confetti-layer"></div>
 
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=18"></script>
 </body>
 </html>

@@ -67,6 +67,16 @@ function skeletonRows(n) {
   return Array.from({ length: n }, () => `<div class="skel skel-row"></div>`).join("");
 }
 
+// ══════════════════════════════════════════════════════════════
+// AUTO DARK/LIGHT MODE — follows Telegram's own theme setting
+// ══════════════════════════════════════════════════════════════
+function applyTelegramTheme() {
+  const scheme = tg.colorScheme; // "light" or "dark"
+  document.documentElement.setAttribute("data-theme", scheme === "light" ? "light" : "dark");
+}
+applyTelegramTheme();
+tg.onEvent("themeChanged", applyTelegramTheme);
+
 window.addEventListener("resize", () => {
   const active = document.querySelector(".nav-btn.active");
   if (active) positionNavPill(active);
@@ -291,6 +301,13 @@ async function loadGifts() {
   renderGifts(lastGifts);
 }
 
+const PRICE_TIERS = [
+  { label: "🌱 Starter", max: 10 },
+  { label: "⭐ Popular", max: 50 },
+  { label: "💎 Premium", max: 200 },
+  { label: "👑 Elite", max: Infinity },
+];
+
 function renderGifts(gifts) {
   animInstances.forEach((a) => a.destroy());
   animInstances = [];
@@ -303,59 +320,91 @@ function renderGifts(gifts) {
     return;
   }
 
-  gifts.forEach((gift) => {
-    const card = document.createElement("div");
-    card.className = "gift-card";
-    if (cart[gift.id]) card.classList.add("selected");
+  const now = Date.now();
+  const isNew = (g) => {
+    if (!g.created_at) return false;
+    const created = new Date(g.created_at.replace(" ", "T") + "Z").getTime();
+    return (now - created) < 7 * 86400 * 1000;
+  };
 
-    const badge = document.createElement("div");
-    badge.className = "check-badge";
-    badge.textContent = "✓";
-    card.appendChild(badge);
+  const newGifts = gifts.filter(isNew);
+  const rest = gifts.filter((g) => !isNew(g));
 
-    const animBox = document.createElement("div");
-    animBox.className = "gift-anim";
-    card.appendChild(animBox);
-
-    const name = document.createElement("div");
-    name.className = "gift-name";
-    name.textContent = `${gift.emoji || "🎁"} ${gift.name}`;
-    card.appendChild(name);
-
-    if (gift.price > 0) {
-      const price = document.createElement("div");
-      price.className = "gift-price";
-      price.textContent = `${gift.price} ⭐`;
-      card.appendChild(price);
-    }
-
-    grid.appendChild(card);
-
-    let anim = null;
-    if (gift.animation_url) {
-      // Paused at frame 0 by default — many simultaneous looping Lottie
-      // animations in a grid is what actually causes lag on weaker
-      // devices. Playing once on selection keeps things smooth while
-      // still giving a satisfying preview.
-      anim = lottie.loadAnimation({
-        container: animBox, renderer: "svg", loop: false, autoplay: false, path: gift.animation_url,
-      });
-      animInstances.push(anim);
-    }
-
-    card.onclick = () => {
-      if (cart[gift.id]) {
-        delete cart[gift.id];
-        card.classList.remove("selected");
-      } else {
-        cart[gift.id] = { gift, quantity: 1, comment_text: "", comment_html: "", item_id: null };
-        card.classList.add("selected");
-        if (anim) anim.goToAndPlay(0, true);
-      }
-      tg.HapticFeedback?.selectionChanged();
-      updateCartFab();
-    };
+  const sections = [];
+  if (newGifts.length) sections.push({ label: "🆕 New Arrivals", items: newGifts });
+  PRICE_TIERS.forEach((tier, i) => {
+    const min = i === 0 ? 0 : PRICE_TIERS[i - 1].max;
+    const items = rest.filter((g) => g.price > min && g.price <= tier.max);
+    if (items.length) sections.push({ label: tier.label, items });
   });
+  const free = rest.filter((g) => g.price <= 0);
+  if (free.length) sections.unshift({ label: "🎁 Free Preview", items: free });
+
+  sections.forEach((section) => {
+    const header = document.createElement("div");
+    header.className = "group-header";
+    header.style.gridColumn = "1 / -1";
+    header.textContent = section.label;
+    grid.appendChild(header);
+    section.items.forEach((gift) => grid.appendChild(buildGiftCard(gift, isNew(gift))));
+  });
+}
+
+function buildGiftCard(gift, isNewBadge) {
+  const card = document.createElement("div");
+  card.className = "gift-card";
+  if (cart[gift.id]) card.classList.add("selected");
+
+  if (isNewBadge) {
+    const newTag = document.createElement("div");
+    newTag.className = "new-tag";
+    newTag.textContent = "NEW";
+    card.appendChild(newTag);
+  }
+
+  const badge = document.createElement("div");
+  badge.className = "check-badge";
+  badge.textContent = "✓";
+  card.appendChild(badge);
+
+  const animBox = document.createElement("div");
+  animBox.className = "gift-anim";
+  card.appendChild(animBox);
+
+  const name = document.createElement("div");
+  name.className = "gift-name";
+  name.textContent = `${gift.emoji || "🎁"} ${gift.name}`;
+  card.appendChild(name);
+
+  if (gift.price > 0) {
+    const price = document.createElement("div");
+    price.className = "gift-price";
+    price.textContent = `${gift.price} ⭐`;
+    card.appendChild(price);
+  }
+
+  let anim = null;
+  if (gift.animation_url) {
+    anim = lottie.loadAnimation({
+      container: animBox, renderer: "svg", loop: false, autoplay: false, path: gift.animation_url,
+    });
+    animInstances.push(anim);
+  }
+
+  card.onclick = () => {
+    if (cart[gift.id]) {
+      delete cart[gift.id];
+      card.classList.remove("selected");
+    } else {
+      cart[gift.id] = { gift, quantity: 1, comment_text: "", comment_html: "", item_id: null };
+      card.classList.add("selected");
+      if (anim) anim.goToAndPlay(0, true);
+    }
+    tg.HapticFeedback?.selectionChanged();
+    updateCartFab();
+  };
+
+  return card;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1517,12 +1566,20 @@ let ccOnSaved = null; // callback(comment_text, comment_html) after successful s
 
 let ccLastRange = null; // remembers cursor position in the contenteditable editor
 
+let ccBotChatPollTimer = null;
+
+function isPremiumUser() {
+  return tg.initDataUnsafe?.user?.is_premium === true;
+}
+
 function openCommentComposer(targetType, targetId, existingText, onSaved) {
   ccTargetType = targetType;
   ccTargetId = targetId;
   ccEntities = [];
   ccOnSaved = onSaved;
   ccLastRange = null;
+  if (ccBotChatPollTimer) { clearInterval(ccBotChatPollTimer); ccBotChatPollTimer = null; }
+
   const editor = document.getElementById("cc-editor");
   editor.innerHTML = "";
   if (existingText) editor.appendChild(document.createTextNode(existingText));
@@ -1531,22 +1588,64 @@ function openCommentComposer(targetType, targetId, existingText, onSaved) {
   document.getElementById("cc-emoji-grid").classList.add("hidden");
   document.getElementById("cc-emoji-grid").innerHTML = "";
   document.getElementById("cc-status").textContent = "";
+  document.getElementById("cc-manual-composer").classList.remove("hidden");
+  document.getElementById("cc-save-btn").classList.remove("hidden");
+  document.getElementById("cc-premium-option").classList.toggle("hidden", !isPremiumUser());
   document.getElementById("comment-composer-modal").classList.remove("hidden");
 
   editor.addEventListener("keyup", saveCcSelection);
   editor.addEventListener("mouseup", saveCcSelection);
   editor.addEventListener("touchend", saveCcSelection);
 
-  // Auto-load the last pack you used — no need to re-paste the link
-  // every time. If the on-device cache happened to be cleared by the
-  // platform, this just triggers one silent re-fetch instead of
-  // requiring you to remember/re-paste the link yourself.
   idbGet("meta", "last_pack_link").then((row) => {
     if (row && row.value) {
       document.getElementById("cc-pack-link").value = row.value;
       fetchEmojiPack();
     }
   });
+}
+
+async function usePremiumCommentFlow() {
+  const status = document.getElementById("cc-status");
+  status.style.color = "#5b8cff";
+  status.textContent = "Check your bot chat — type your comment there, with premium emoji if you like…";
+
+  document.getElementById("cc-manual-composer").classList.add("hidden");
+  document.getElementById("cc-premium-option").classList.add("hidden");
+  document.getElementById("cc-save-btn").classList.add("hidden");
+
+  const endpoint = ccTargetType === "giveaway"
+    ? `${API_BASE}/api/giveaways/${ccTargetId}/request-comment`
+    : `${API_BASE}/api/cart/item/${ccTargetId}/request-comment`;
+
+  const res = await fetch(withAuth(endpoint), { method: "POST" });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    status.style.color = "#ff6b6b";
+    status.textContent = e.detail || "Could not send request.";
+    return;
+  }
+  tg.HapticFeedback?.impactOccurred("light");
+
+  const pollUrl = ccTargetType === "giveaway"
+    ? `${API_BASE}/api/giveaways/${ccTargetId}`
+    : `${API_BASE}/api/cart/item/${ccTargetId}`;
+
+  if (ccBotChatPollTimer) clearInterval(ccBotChatPollTimer);
+  ccBotChatPollTimer = setInterval(async () => {
+    const r = await fetch(withAuth(pollUrl));
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.comment_text) {
+      clearInterval(ccBotChatPollTimer);
+      ccBotChatPollTimer = null;
+      status.style.color = "#4ade80";
+      status.textContent = "✅ Comment received!";
+      tg.HapticFeedback?.notificationOccurred("success");
+      if (ccOnSaved) ccOnSaved(d.comment_text, d.comment_html || "");
+      setTimeout(closeCommentComposer, 900);
+    }
+  }, 2500);
 }
 
 function saveCcSelection() {
@@ -1561,6 +1660,7 @@ function saveCcSelection() {
 
 function closeCommentComposer() {
   document.getElementById("comment-composer-modal").classList.add("hidden");
+  if (ccBotChatPollTimer) { clearInterval(ccBotChatPollTimer); ccBotChatPollTimer = null; }
 }
 
 async function fetchEmojiPack(forceRefresh = false) {
