@@ -6,7 +6,10 @@
 <title>Gifts Shop</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
 
@@ -83,6 +86,7 @@
 
     <!-- ── BOTTOM NAV ─────────────────────────────────────── -->
     <nav class="bottom-nav" id="bottom-nav">
+      <div class="nav-pill" id="nav-pill"></div>
       <button class="nav-btn active" data-tab="shop" onclick="switchTab('shop')">
         <span>🛍️</span><small>Shop</small>
       </button>
@@ -286,6 +290,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=15"></script>
+  <div id="confetti-layer"></div>
+
+  <script src="app.js?v=17"></script>
 </body>
 </html>

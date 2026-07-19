@@ -19,6 +19,60 @@ function withAuth(url) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// POLISH: confetti, nav pill, skeletons, shake feedback
+// ══════════════════════════════════════════════════════════════
+function fireConfetti() {
+  const layer = document.getElementById("confetti-layer");
+  const colors = ["#6c8dff", "#9b6cff", "#ffcf5c", "#4ade80", "#ff9ed8"];
+  const count = 36;
+  for (let i = 0; i < count; i++) {
+    const piece = document.createElement("div");
+    piece.className = "confetti-piece";
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.width = piece.style.height = `${5 + Math.random() * 6}px`;
+    piece.style.borderRadius = Math.random() > 0.5 ? "50%" : "2px";
+    const duration = 1.8 + Math.random() * 1.4;
+    const delay = Math.random() * 0.3;
+    piece.style.animationDuration = `${duration}s`;
+    piece.style.animationDelay = `${delay}s`;
+    layer.appendChild(piece);
+    setTimeout(() => piece.remove(), (duration + delay) * 1000 + 100);
+  }
+}
+
+function shakeElement(el) {
+  if (!el) return;
+  el.classList.remove("shake");
+  void el.offsetWidth; // force reflow so the animation can restart
+  el.classList.add("shake");
+  tg.HapticFeedback?.notificationOccurred("error");
+}
+
+function positionNavPill(activeBtn) {
+  const pill = document.getElementById("nav-pill");
+  const nav = document.getElementById("bottom-nav");
+  if (!activeBtn || !pill || !nav) return;
+  const navRect = nav.getBoundingClientRect();
+  const btnRect = activeBtn.getBoundingClientRect();
+  pill.style.left = `${btnRect.left - navRect.left}px`;
+  pill.style.width = `${btnRect.width}px`;
+  pill.classList.add("visible");
+}
+
+function skeletonCards(n) {
+  return Array.from({ length: n }, () => `<div class="skel skel-card"></div>`).join("");
+}
+function skeletonRows(n) {
+  return Array.from({ length: n }, () => `<div class="skel skel-row"></div>`).join("");
+}
+
+window.addEventListener("resize", () => {
+  const active = document.querySelector(".nav-btn.active");
+  if (active) positionNavPill(active);
+});
+
+// ══════════════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════════════
 async function authenticate() {
@@ -44,6 +98,7 @@ async function authenticate() {
   checkGwCreateAccess();
   document.getElementById("loading").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
+  positionNavPill(document.querySelector('.nav-btn[data-tab="shop"]'));
   checkGwDeepLink();
 }
 
@@ -72,6 +127,7 @@ function switchTab(tab) {
     document.getElementById(`tab-${t}`).classList.toggle("hidden", t !== tab);
   });
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  positionNavPill(document.querySelector(`.nav-btn[data-tab="${tab}"]`));
 
   const titles = { shop: "Gifts Shop", orders: "My Orders", convert: "NFT to Sticker", giveaways: "Giveaways", gifts: "Manage Gifts", users: "Manage Users" };
   document.getElementById("page-title").textContent = titles[tab];
@@ -172,6 +228,7 @@ async function buyConvert() {
       status.style.color = "#4ade80";
       status.textContent = "✅ Paid! Check your chat with the bot for your sticker.";
       tg.HapticFeedback?.notificationOccurred("success");
+      fireConfetti();
     } else if (paymentStatus === "cancelled") {
       status.style.color = "#ff6b6b";
       status.textContent = "Payment cancelled.";
@@ -227,6 +284,7 @@ async function saveNftPricing() {
 let lastGifts = [];
 
 async function loadGifts() {
+  document.getElementById("gift-grid").innerHTML = skeletonCards(6);
   const res = await fetch(withAuth(`${API_BASE}/api/gifts`));
   if (!res.ok) { showError("Could not load gifts."); return; }
   lastGifts = (await res.json()).gifts;
@@ -488,6 +546,7 @@ async function payCart() {
       status.textContent = "✅ Ready! Check My Orders for the claim link.";
     }
     tg.HapticFeedback?.notificationOccurred("success");
+    fireConfetti();
     cart = {};
     updateCartFab();
     setTimeout(() => { closeCart(); loadGifts(); }, 1800);
@@ -501,6 +560,7 @@ async function payCart() {
         ? "✅ Paid! Check My Orders for the claim link."
         : "✅ Paid! Check your Telegram profile gifts.";
       tg.HapticFeedback?.notificationOccurred("success");
+      fireConfetti();
       cart = {};
       updateCartFab();
       setTimeout(() => { closeCart(); loadGifts(); }, 1800);
@@ -518,6 +578,7 @@ async function payCart() {
 // MY ORDERS
 // ══════════════════════════════════════════════════════════════
 async function loadOrders() {
+  document.getElementById("orders-list").innerHTML = skeletonRows(4);
   const res = await fetch(withAuth(`${API_BASE}/api/orders`));
   const list = document.getElementById("orders-list");
   if (!res.ok) { list.innerHTML = `<p class="empty-state">Could not load orders.</p>`; return; }
@@ -591,6 +652,7 @@ function copyLink(link, btn) {
 // ADMIN — GIFT MANAGEMENT
 // ══════════════════════════════════════════════════════════════
 async function loadAdminGifts() {
+  document.getElementById("admin-gift-list").innerHTML = skeletonRows(4);
   const res = await fetch(withAuth(`${API_BASE}/api/admin/gifts`));
   if (!res.ok) return;
   renderAdminGifts((await res.json()).gifts);
@@ -777,6 +839,7 @@ async function submitGift() {
 
   if (!name || !giftId || !playerPrice || !resellerPrice || (!isEdit && !file && !fetchedAnimationJson)) {
     status.textContent = "Fill in all fields and provide an animation (upload a file or fetch by NFT link).";
+    shakeElement(document.querySelector("#gift-modal .modal-card"));
     return;
   }
 
@@ -818,6 +881,7 @@ const ROLE_LABELS = { user: "👤 Users", reseller: "🏪 Resellers", admin: "�
 let allUsers = [];
 
 async function loadUsers() {
+  document.getElementById("user-list").innerHTML = skeletonRows(5);
   const res = await fetch(withAuth(`${API_BASE}/api/admin/users`));
   if (!res.ok) return;
   allUsers = (await res.json()).users;
@@ -1008,6 +1072,7 @@ async function checkGwCreateAccess() {
 }
 
 async function loadGiveaways() {
+  document.getElementById("gw-list").innerHTML = skeletonRows(3);
   const res = await fetch(withAuth(`${API_BASE}/api/giveaways`));
   const list = document.getElementById("gw-list");
   Object.values(gwCountdownTimers).forEach(clearInterval);
@@ -1157,6 +1222,7 @@ async function enterGiveaway() {
   status.style.color = "#4ade80";
   status.textContent = "🎉 You're entered! Good luck!";
   tg.HapticFeedback?.notificationOccurred("success");
+  fireConfetti();
   document.getElementById("gwd-enter-btn").textContent = "✅ Already Entered";
   document.getElementById("gwd-enter-btn").disabled = true;
 }
@@ -1301,12 +1367,13 @@ document.getElementById("gwc-duration")?.addEventListener("input", updateGwDurat
 async function createGwPending() {
   const status = document.getElementById("gwc-status");
   const items = Object.values(gwCart).map((l) => ({ gift_db_id: l.gift.id, quantity: l.quantity }));
-  if (!items.length) { status.style.color = "#ff6b6b"; status.textContent = "Select at least one gift."; return false; }
+  if (!items.length) { status.style.color = "#ff6b6b"; status.textContent = "Select at least one gift."; shakeElement(document.querySelector("#gw-create-modal .modal-card")); return false; }
 
   const durationSeconds = parseGwDuration(document.getElementById("gwc-duration").value);
   if (!durationSeconds || durationSeconds < 60 || durationSeconds > 7 * 86400) {
     status.style.color = "#ff6b6b";
     status.textContent = "Enter a valid duration (1 minute – 7 days), e.g. 30m, 2h, 1h30m, 3d.";
+    shakeElement(document.querySelector("#gw-create-modal .modal-card"));
     return false;
   }
   const requireJoin = document.getElementById("gwc-require-join").checked;
@@ -1362,6 +1429,7 @@ async function gwCheckout() {
       status.style.color = "#4ade80";
       status.textContent = "✅ Paid! Giveaway posted to your channel.";
       tg.HapticFeedback?.notificationOccurred("success");
+      fireConfetti();
       setTimeout(() => { closeGwCreate(); loadGiveaways(); }, 1500);
     } else if (paymentStatus === "cancelled") {
       status.style.color = "#ff6b6b";
