@@ -123,6 +123,39 @@ body::before {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.loading-anim {
+  width: 96px;
+  height: 96px;
+  filter: drop-shadow(0 8px 24px #6c8dff44);
+  animation: floatY 2.4s ease-in-out infinite;
+}
+@keyframes floatY {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.loading-bar-track {
+  width: 160px;
+  height: 5px;
+  border-radius: 6px;
+  background: #ffffff10;
+  overflow: hidden;
+  position: relative;
+}
+.loading-bar-fill {
+  position: absolute;
+  top: 0; bottom: 0; left: -40%;
+  width: 40%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
+  animation: loadingSweep 1.3s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  box-shadow: 0 0 12px 1px #6c8dff88;
+}
+@keyframes loadingSweep {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -264,6 +297,56 @@ body::before {
   padding: 3px 7px;
   border-radius: 6px;
   box-shadow: 0 2px 8px #ffcf5c55;
+  z-index: 2;
+}
+
+.gift-card .time-limited-tag {
+  position: absolute;
+  top: 9px; right: 9px;
+  background: linear-gradient(135deg, #ff5b5b, #ff2d78);
+  color: white;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  box-shadow: 0 2px 10px #ff2d7855;
+  z-index: 2;
+  animation: pulseTimer 1.6s ease-in-out infinite;
+  white-space: nowrap;
+}
+@keyframes pulseTimer {
+  0%, 100% { transform: scale(1); box-shadow: 0 2px 10px #ff2d7855; }
+  50% { transform: scale(1.06); box-shadow: 0 2px 16px #ff2d7888; }
+}
+
+.gift-card .discount-ribbon {
+  position: absolute;
+  bottom: -6px; left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #ffb020, #ff6a00);
+  color: #241000;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 4px 12px 5px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px #ff6a0066, 0 0 0 2px var(--bg);
+  z-index: 2;
+  letter-spacing: 0.2px;
+}
+
+.gift-price-discount {
+  font-size: 12px;
+  color: var(--gold);
+  margin-top: 4px;
+  font-weight: 800;
+}
+.gift-price-discount .orig {
+  color: var(--text-faint);
+  text-decoration: line-through;
+  font-weight: 600;
+  font-size: 10.5px;
+  margin-right: 4px;
 }
 
 .empty-state {

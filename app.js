@@ -77,6 +77,19 @@ function applyTelegramTheme() {
 applyTelegramTheme();
 tg.onEvent("themeChanged", applyTelegramTheme);
 
+function loadLoadingAnim() {
+  const box = document.getElementById("loading-anim");
+  try {
+    const anim = lottie.loadAnimation({
+      container: box, renderer: "svg", loop: true, autoplay: true, path: "Loading.json",
+    });
+    anim.addEventListener("data_failed", () => { box.classList.add("spinner"); });
+  } catch {
+    box.classList.add("spinner");
+  }
+}
+loadLoadingAnim();
+
 window.addEventListener("resize", () => {
   const active = document.querySelector(".nav-btn.active");
   if (active) positionNavPill(active);
@@ -308,9 +321,13 @@ const PRICE_TIERS = [
   { label: "👑 Elite", max: Infinity },
 ];
 
+let giftCountdownTimers = {};
+
 function renderGifts(gifts) {
   animInstances.forEach((a) => a.destroy());
   animInstances = [];
+  Object.values(giftCountdownTimers).forEach(clearInterval);
+  giftCountdownTimers = {};
 
   const grid = document.getElementById("gift-grid");
   grid.innerHTML = "";
@@ -326,19 +343,27 @@ function renderGifts(gifts) {
     const created = new Date(g.created_at.replace(" ", "T") + "Z").getTime();
     return (now - created) < 7 * 86400 * 1000;
   };
+  const isTimeLimited = (g) => g.time_remaining_secs && g.time_remaining_secs > 0;
+  const isDiscounted = (g) => g.is_discount && g.original_price;
 
   const newGifts = gifts.filter(isNew);
-  const rest = gifts.filter((g) => !isNew(g));
+  const timeLimitedGifts = gifts.filter(isTimeLimited);
+  const discountGifts = gifts.filter(isDiscounted);
+  const featuredIds = new Set([...newGifts, ...timeLimitedGifts, ...discountGifts].map((g) => g.id));
+  const rest = gifts.filter((g) => !featuredIds.has(g.id));
 
   const sections = [];
   if (newGifts.length) sections.push({ label: "🆕 New Arrivals", items: newGifts });
+  if (timeLimitedGifts.length) sections.push({ label: "⏰ Time Limited", items: timeLimitedGifts });
+  if (discountGifts.length) sections.push({ label: "🔥 Discount", items: discountGifts });
+
+  const free = rest.filter((g) => g.price <= 0);
+  if (free.length) sections.push({ label: "🎁 Free Preview", items: free });
   PRICE_TIERS.forEach((tier, i) => {
     const min = i === 0 ? 0 : PRICE_TIERS[i - 1].max;
     const items = rest.filter((g) => g.price > min && g.price <= tier.max);
     if (items.length) sections.push({ label: tier.label, items });
   });
-  const free = rest.filter((g) => g.price <= 0);
-  if (free.length) sections.unshift({ label: "🎁 Free Preview", items: free });
 
   sections.forEach((section) => {
     const header = document.createElement("div");
@@ -362,6 +387,21 @@ function buildGiftCard(gift, isNewBadge) {
     card.appendChild(newTag);
   }
 
+  if (gift.time_remaining_secs && gift.time_remaining_secs > 0) {
+    const tlTag = document.createElement("div");
+    tlTag.className = "time-limited-tag";
+    tlTag.id = `gift-timer-${gift.id}`;
+    card.appendChild(tlTag);
+    let remaining = gift.time_remaining_secs;
+    const update = () => {
+      tlTag.innerHTML = `⏰ ${fmtDuration(remaining)}`;
+      remaining = Math.max(0, remaining - 1);
+      if (remaining <= 0) clearInterval(giftCountdownTimers[gift.id]);
+    };
+    update();
+    giftCountdownTimers[gift.id] = setInterval(update, 1000);
+  }
+
   const badge = document.createElement("div");
   badge.className = "check-badge";
   badge.textContent = "✓";
@@ -373,10 +413,20 @@ function buildGiftCard(gift, isNewBadge) {
 
   const name = document.createElement("div");
   name.className = "gift-name";
-  name.textContent = `${gift.emoji || "🎁"} ${gift.name}`;
+  name.textContent = gift.emoji ? `${gift.emoji} ${gift.name}` : gift.name;
   card.appendChild(name);
 
-  if (gift.price > 0) {
+  if (gift.is_discount && gift.original_price) {
+    const priceRow = document.createElement("div");
+    priceRow.className = "gift-price-discount";
+    priceRow.innerHTML = `<span class="orig">${gift.original_price}</span> ${gift.price} ⭐`;
+    card.appendChild(priceRow);
+
+    const ribbon = document.createElement("div");
+    ribbon.className = "discount-ribbon";
+    ribbon.textContent = `-${gift.discount_percent}%`;
+    card.appendChild(ribbon);
+  } else if (gift.price > 0) {
     const price = document.createElement("div");
     price.className = "gift-price";
     price.textContent = `${gift.price} ⭐`;
@@ -460,7 +510,7 @@ function renderCartReview() {
     div.innerHTML = `
       <div class="cart-line-top">
         <div class="cart-line-thumb" id="cart-thumb-${line.gift.id}"></div>
-        <div class="cart-line-name">${line.gift.emoji || "🎁"} ${escapeHtml(line.gift.name)}</div>
+        <div class="cart-line-name">${giftLabel(line.gift.emoji, line.gift.name)}</div>
         <div class="cart-line-subtotal">${line.gift.price * line.quantity} ⭐</div>
       </div>
       <div class="qty-control">
@@ -540,7 +590,7 @@ function renderCheckoutLines() {
     div.innerHTML = `
       <div class="cart-line-top">
         <div class="cart-line-thumb" id="checkout-thumb-${line.gift.id}"></div>
-        <div class="cart-line-name">${line.gift.emoji || "🎁"} ${escapeHtml(line.gift.name)} ×${line.quantity}</div>
+        <div class="cart-line-name">${giftLabel(line.gift.emoji, line.gift.name)} ×${line.quantity}</div>
         <div class="cart-line-subtotal">${line.gift.price * line.quantity} ⭐</div>
       </div>
       ${line.comment_text ? `<div class="cart-line-comment">💬 ${escapeHtml(line.comment_text)}</div>` : ""}
@@ -667,7 +717,7 @@ function renderOrders(orders) {
 
     row.innerHTML = `
       <div class="order-top">
-        <div class="thumb" id="order-thumb-${o.id}">${o.animation_url ? "" : (o.gift_emoji || "🎁")}</div>
+        <div class="thumb" id="order-thumb-${o.id}">${o.animation_url ? "" : (o.gift_emoji || "")}</div>
         <div class="name">${escapeHtml(o.gift_name)}</div>
         <div class="price">${o.price} ⭐</div>
       </div>
@@ -720,7 +770,7 @@ function renderAdminGifts(gifts) {
     const row = document.createElement("div");
     row.className = "list-row";
     row.innerHTML = `
-      <div class="thumb">${g.emoji || "🎁"}</div>
+      <div class="thumb">${g.emoji || ""}</div>
       <div class="info">
         <div class="title">${escapeHtml(g.name)}</div>
         <div class="subtitle ${g.active ? "" : "inactive"}">
@@ -781,7 +831,7 @@ function openGiftForm(gift = null) {
   document.getElementById("gift-submit-btn").textContent = gift ? "Save" : "Upload";
   document.getElementById("f-name").value = gift ? gift.name : "";
   document.getElementById("f-giftid").value = gift ? gift.gift_id : "";
-  document.getElementById("f-emoji").value = gift ? gift.emoji : "🎁";
+  document.getElementById("f-emoji").value = gift ? gift.emoji : "";
   document.getElementById("f-player-price").value = gift ? gift.player_price : "";
   document.getElementById("f-reseller-price").value = gift ? gift.reseller_price : "";
   document.getElementById("f-giftid").disabled = !!gift;
@@ -792,6 +842,14 @@ function openGiftForm(gift = null) {
   document.getElementById("nft-preview-table").classList.add("hidden");
   document.getElementById("preview-box").classList.add("hidden");
   document.getElementById("upload-status").textContent = "";
+
+  document.getElementById("f-time-limited").checked = gift ? gift.is_time_limited : false;
+  document.getElementById("f-duration-row").classList.toggle("hidden", !(gift && gift.is_time_limited));
+  document.getElementById("f-duration-row").value = "";
+  document.getElementById("f-discount").checked = gift ? gift.is_discount : false;
+  document.getElementById("f-discount-row").classList.toggle("hidden", !(gift && gift.is_discount));
+  document.getElementById("f-discount-row").value = gift && gift.discount_percent ? gift.discount_percent : "";
+
   document.getElementById("gift-modal").classList.remove("hidden");
 }
 
@@ -879,7 +937,7 @@ document.getElementById("f-file").addEventListener("change", async (e) => {
 async function submitGift() {
   const name = document.getElementById("f-name").value.trim();
   const giftId = document.getElementById("f-giftid").value.trim();
-  const emoji = document.getElementById("f-emoji").value.trim() || "🎁";
+  const emoji = document.getElementById("f-emoji").value.trim();
   const playerPrice = document.getElementById("f-player-price").value;
   const resellerPrice = document.getElementById("f-reseller-price").value;
   const file = document.getElementById("f-file").files[0];
@@ -906,6 +964,10 @@ async function submitGift() {
   } else if (file) {
     form.append("animation", file);
   }
+  form.append("is_time_limited", document.getElementById("f-time-limited").checked ? "1" : "0");
+  form.append("time_limit_duration", document.getElementById("f-duration-row").value.trim());
+  form.append("is_discount", document.getElementById("f-discount").checked ? "1" : "0");
+  form.append("discount_percent", document.getElementById("f-discount-row").value.trim());
 
   const url = isEdit ? `${API_BASE}/api/admin/gift/${editingGiftId}` : `${API_BASE}/api/admin/gift`;
   const res = await fetch(withAuth(url), { method: isEdit ? "PATCH" : "POST", body: form });
@@ -1148,7 +1210,7 @@ function renderGiveaways(giveaways) {
     row.style.cursor = "pointer";
     row.onclick = () => openGwDetail(gw.id);
 
-    const giftIcons = gw.gifts.slice(0, 3).map((g) => g.emoji || "🎁").join(" ");
+    const giftIcons = gw.gifts.slice(0, 3).map((g) => g.emoji || "🎉").join(" ");
     const statusLabel = gw.status === "ended" ? "Ended" : "Active";
 
     row.innerHTML = `
@@ -1215,7 +1277,7 @@ function renderGwDetail(gw) {
 
   const giftsBox = document.getElementById("gwd-gifts");
   giftsBox.innerHTML = gw.gifts.map((g) => `
-    <div class="row"><span class="label">${g.emoji || "🎁"} ${escapeHtml(g.name)}</span><span class="value">×${g.quantity}</span></div>
+    <div class="row"><span class="label">${giftLabel(g.emoji, g.name)}</span><span class="value">×${g.quantity}</span></div>
   `).join("");
 
   document.getElementById("gwd-participants").textContent =
@@ -1233,7 +1295,7 @@ function renderGwDetail(gw) {
     winnersBox.classList.remove("hidden");
     winnersBox.innerHTML = gw.winners.length
       ? `<div class="group-header">Winners</div>` + gw.winners.map((w) =>
-          `<div class="cart-line"><div class="cart-line-top"><div class="cart-line-name">${w.username ? "@" + escapeHtml(w.username) : escapeHtml(w.first_name || "User")}</div><div class="cart-line-subtotal">${w.gift_emoji || "🎁"} ${escapeHtml(w.gift_name || "")}</div></div></div>`
+          `<div class="cart-line"><div class="cart-line-top"><div class="cart-line-name">${w.username ? "@" + escapeHtml(w.username) : escapeHtml(w.first_name || "User")}</div><div class="cart-line-subtotal">${giftLabel(w.gift_emoji, w.gift_name || "")}</div></div></div>`
         ).join("")
       : `<p class="empty-state">No participants — no winners this time.</p>`;
   } else {
@@ -1320,7 +1382,7 @@ function renderGwGiftGrid() {
     const card = document.createElement("div");
     card.className = "gift-card";
     if (gwCart[gift.id]) card.classList.add("selected");
-    card.innerHTML = `<div class="check-badge">✓</div><div class="gift-anim" id="gwc-anim-${gift.id}"></div><div class="gift-name">${gift.emoji || "🎁"} ${escapeHtml(gift.name)}</div>`;
+    card.innerHTML = `<div class="check-badge">✓</div><div class="gift-anim" id="gwc-anim-${gift.id}"></div><div class="gift-name">${giftLabel(gift.emoji, gift.name)}</div>`;
     card.onclick = () => {
       if (gwCart[gift.id]) delete gwCart[gift.id];
       else gwCart[gift.id] = { gift, quantity: 1 };
@@ -1345,7 +1407,7 @@ function renderGwCartLines() {
     div.className = "cart-line";
     div.innerHTML = `
       <div class="cart-line-top">
-        <div class="cart-line-name">${line.gift.emoji || "🎁"} ${escapeHtml(line.gift.name)}</div>
+        <div class="cart-line-name">${giftLabel(line.gift.emoji, line.gift.name)}</div>
       </div>
       <div class="qty-control">
         <button class="qty-btn" onclick="changeGwQty(${line.gift.id}, -1)">−</button>
@@ -1836,6 +1898,10 @@ async function saveComposedComment() {
   tg.HapticFeedback?.notificationOccurred("success");
   if (ccOnSaved) ccOnSaved(text, data.comment_html);
   setTimeout(closeCommentComposer, 500);
+}
+
+function giftLabel(emoji, name) {
+  return emoji ? `${emoji} ${escapeHtml(name)}` : escapeHtml(name);
 }
 
 authenticate();

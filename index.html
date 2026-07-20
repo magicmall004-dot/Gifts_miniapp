@@ -9,12 +9,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
 
   <div id="loading" class="screen center">
-    <div class="spinner"></div>
+    <div id="loading-anim" class="loading-anim"></div>
+    <div class="loading-bar-track">
+      <div class="loading-bar-fill"></div>
+    </div>
     <p>Loading your shop…</p>
   </div>
 
@@ -122,7 +125,7 @@
 
       <input id="f-name" placeholder="Gift name">
       <input id="f-giftid" placeholder="Telegram Gift API ID">
-      <input id="f-emoji" placeholder="Emoji (optional)" value="🎁">
+      <input id="f-emoji" placeholder="Emoji (optional)">
       <input id="f-player-price" type="number" placeholder="Player price (Stars)">
       <input id="f-reseller-price" type="number" placeholder="Reseller price (Stars)">
       <label class="file-label">
@@ -130,6 +133,17 @@
         <input id="f-file" type="file" accept="application/json">
       </label>
       <div id="preview-box" class="preview-box hidden"></div>
+
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;">
+        <input type="checkbox" id="f-time-limited" style="width:auto;" onchange="document.getElementById('f-duration-row').classList.toggle('hidden', !this.checked)"> ⏰ Time Limited
+      </label>
+      <input id="f-duration-row" class="hidden" placeholder="e.g. 2h, 3d, 30m">
+
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;">
+        <input type="checkbox" id="f-discount" style="width:auto;" onchange="document.getElementById('f-discount-row').classList.toggle('hidden', !this.checked)"> 🔥 Discount
+      </label>
+      <input id="f-discount-row" class="hidden" type="number" placeholder="Discount % (e.g. 20)">
+
       <div class="modal-actions">
         <button onclick="closeGiftForm()" class="btn-secondary">Cancel</button>
         <button onclick="submitGift()" class="btn-primary" id="gift-submit-btn">Upload</button>
@@ -301,6 +315,6 @@
 
   <div id="confetti-layer"></div>
 
-  <script src="app.js?v=18"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>
