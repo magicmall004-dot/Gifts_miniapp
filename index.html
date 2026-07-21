@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
 
@@ -140,9 +140,10 @@
       <input id="f-duration-row" class="hidden" placeholder="e.g. 2h, 3d, 30m">
 
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;">
-        <input type="checkbox" id="f-discount" style="width:auto;" onchange="document.getElementById('f-discount-row').classList.toggle('hidden', !this.checked)"> 🔥 Discount
+        <input type="checkbox" id="f-discount" style="width:auto;" onchange="document.getElementById('f-discount-row').classList.toggle('hidden', !this.checked); document.getElementById('f-discount-duration-row').classList.toggle('hidden', !this.checked)"> 🔥 Discount
       </label>
       <input id="f-discount-row" class="hidden" type="number" placeholder="Discount % (e.g. 20)">
+      <input id="f-discount-duration-row" class="hidden" placeholder="Discount ends in (optional, e.g. 2d) — leave blank for no expiry">
 
       <div class="modal-actions">
         <button onclick="closeGiftForm()" class="btn-secondary">Cancel</button>
@@ -315,6 +316,6 @@
 
   <div id="confetti-layer"></div>
 
-  <script src="app.js?v=19"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

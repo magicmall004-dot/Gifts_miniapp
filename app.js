@@ -349,13 +349,19 @@ function renderGifts(gifts) {
   const newGifts = gifts.filter(isNew);
   const timeLimitedGifts = gifts.filter(isTimeLimited);
   const discountGifts = gifts.filter(isDiscounted);
-  const featuredIds = new Set([...newGifts, ...timeLimitedGifts, ...discountGifts].map((g) => g.id));
+
+  // Merge into ONE deduplicated "featured" set — a gift that's both
+  // time-limited AND discounted only appears once, showing every
+  // applicable badge on that single card, instead of being duplicated
+  // across separate titled sections.
+  const featuredMap = new Map();
+  [...newGifts, ...timeLimitedGifts, ...discountGifts].forEach((g) => featuredMap.set(g.id, g));
+  const featured = [...featuredMap.values()].sort((a, b) => a.price - b.price);
+  const featuredIds = new Set(featured.map((g) => g.id));
   const rest = gifts.filter((g) => !featuredIds.has(g.id));
 
   const sections = [];
-  if (newGifts.length) sections.push({ label: "🆕 New Arrivals", items: newGifts });
-  if (timeLimitedGifts.length) sections.push({ label: "⏰ Time Limited", items: timeLimitedGifts });
-  if (discountGifts.length) sections.push({ label: "🔥 Discount", items: discountGifts });
+  if (featured.length) sections.push({ label: null, items: featured });
 
   const free = rest.filter((g) => g.price <= 0);
   if (free.length) sections.push({ label: "🎁 Free Preview", items: free });
@@ -366,11 +372,13 @@ function renderGifts(gifts) {
   });
 
   sections.forEach((section) => {
-    const header = document.createElement("div");
-    header.className = "group-header";
-    header.style.gridColumn = "1 / -1";
-    header.textContent = section.label;
-    grid.appendChild(header);
+    if (section.label) {
+      const header = document.createElement("div");
+      header.className = "group-header";
+      header.style.gridColumn = "1 / -1";
+      header.textContent = section.label;
+      grid.appendChild(header);
+    }
     section.items.forEach((gift) => grid.appendChild(buildGiftCard(gift, isNew(gift))));
   });
 }
@@ -849,6 +857,8 @@ function openGiftForm(gift = null) {
   document.getElementById("f-discount").checked = gift ? gift.is_discount : false;
   document.getElementById("f-discount-row").classList.toggle("hidden", !(gift && gift.is_discount));
   document.getElementById("f-discount-row").value = gift && gift.discount_percent ? gift.discount_percent : "";
+  document.getElementById("f-discount-duration-row").classList.toggle("hidden", !(gift && gift.is_discount));
+  document.getElementById("f-discount-duration-row").value = "";
 
   document.getElementById("gift-modal").classList.remove("hidden");
 }
@@ -968,6 +978,7 @@ async function submitGift() {
   form.append("time_limit_duration", document.getElementById("f-duration-row").value.trim());
   form.append("is_discount", document.getElementById("f-discount").checked ? "1" : "0");
   form.append("discount_percent", document.getElementById("f-discount-row").value.trim());
+  form.append("discount_duration", document.getElementById("f-discount-duration-row").value.trim());
 
   const url = isEdit ? `${API_BASE}/api/admin/gift/${editingGiftId}` : `${API_BASE}/api/admin/gift`;
   const res = await fetch(withAuth(url), { method: isEdit ? "PATCH" : "POST", body: form });
