@@ -432,8 +432,21 @@ function buildGiftCard(gift, isNewBadge) {
 
     const ribbon = document.createElement("div");
     ribbon.className = "discount-ribbon";
-    ribbon.textContent = `-${gift.discount_percent}%`;
+    ribbon.id = `discount-ribbon-${gift.id}`;
     card.appendChild(ribbon);
+
+    if (gift.discount_remaining_secs && gift.discount_remaining_secs > 0) {
+      let remaining = gift.discount_remaining_secs;
+      const update = () => {
+        ribbon.innerHTML = `-${gift.discount_percent}% · ${fmtDuration(remaining)}`;
+        remaining = Math.max(0, remaining - 1);
+        if (remaining <= 0) clearInterval(giftCountdownTimers[`discount-${gift.id}`]);
+      };
+      update();
+      giftCountdownTimers[`discount-${gift.id}`] = setInterval(update, 1000);
+    } else {
+      ribbon.textContent = `-${gift.discount_percent}%`;
+    }
   } else if (gift.price > 0) {
     const price = document.createElement("div");
     price.className = "gift-price";
